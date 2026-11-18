@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ganeca Sales Dashboard</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Ganeca">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="masuk" class="masuk" hidden>
+    <form id="form-masuk" class="kartu masuk-kartu" autocomplete="on">
+      <img src="icon-192.png" alt="" width="56" height="56" class="masuk-logo">
+      <h1>Ganeca</h1>
+      <p class="sub">Dashboard Penjualan Shopee</p>
+      <input type="text" name="username" autocomplete="username" value="ganeca" hidden>
+      <label for="sandi">Kata sandi</label>
+      <input id="sandi" name="password" type="password" autocomplete="current-password" required>
+      <label class="cek"><input id="ingat" type="checkbox" checked> Ingat di perangkat ini</label>
+      <button type="submit" id="tombol-masuk">Buka dashboard</button>
+      <p id="pesan-masuk" class="pesan" role="status"></p>
+    </form>
+  </main>
+
+  <div id="aplikasi" hidden>
+    <header class="kepala">
+      <div>
+        <h1>Ganeca <span>Penjualan Shopee</span></h1>
+        <p id="info-data" class="sub"></p>
+      </div>
+      <button id="keluar" class="tombol-teks" type="button">Keluar</button>
+    </header>
+
+    <section class="saringan" aria-label="Saringan">
+      <div class="chips" id="periode" role="radiogroup" aria-label="Periode (Waktu Selesai / Dana Lepas)"></div>
+      <div class="rentang" id="rentang" hidden>
+        <label>Dari <input type="date" id="dari"></label>
+        <label>Sampai <input type="date" id="sampai"></label>
+      </div>
+      <label class="cek saklar"><input type="checkbox" id="tanpa-retur"> <span id="label-retur">Kecualikan retur</span></label>
+    </section>
+
+    <p id="ringkas-periode" class="sub periode-teks"></p>
+
+    <section class="kpi" id="kpi" aria-label="Ringkasan"></section>
+
+    <section class="grup">
+      <h2>Tren</h2>
+      <div class="grid dua">
+        <article class="kartu"><h3>Penghasilan Akhir (PA) <span class="satuan" id="tren-satuan-1"></span></h3><div class="kanvas tren" data-kosong="Tidak ada pesanan pada periode ini"><canvas id="tren-pa" aria-label="Grafik PA per periode"></canvas></div></article>
+        <article class="kartu"><h3>Jumlah pesanan <span class="satuan" id="tren-satuan-2"></span></h3><div class="kanvas tren" data-kosong="Tidak ada pesanan pada periode ini"><canvas id="tren-n" aria-label="Grafik jumlah pesanan per periode"></canvas></div></article>
+      </div>
+    </section>
+
+    <section class="grup">
+      <h2>Lokasi pembeli</h2>
+      <div class="grid dua" id="lokasi"></div>
+    </section>
+
+    <section class="grup">
+      <h2>Waktu</h2>
+      <div class="grid tiga" id="grup-waktu"></div>
+    </section>
+
+    <section class="grup">
+      <h2>Nilai pesanan</h2>
+      <div class="grid tiga" id="grup-nilai"></div>
+    </section>
+
+    <section class="grup">
+      <h2>Biaya dan selisih</h2>
+      <div class="grid dua" id="grup-biaya"></div>
+    </section>
+
+    <section class="grup">
+      <h2>Produk</h2>
+      <article class="kartu">
+        <div class="kepala-kartu">
+          <h3>Popularitas SKU Induk</h3>
+          <div class="segmen" id="ukuran-produk" role="radiogroup" aria-label="Ukuran popularitas"></div>
+        </div>
+        <div class="sorot" id="sorot-produk"></div>
+        <p class="catatan">Ketuk SKU Induk di daftar untuk melihat variannya.</p>
+        <div id="daftar-sku" class="daftar-batang" role="list"></div>
+        <h4 id="judul-varian"></h4>
+        <div id="daftar-varian" class="daftar-batang" role="list"></div>
+      </article>
+    </section>
+
+    <footer class="kaki sub">
+      Data dihitung dari file Excel penjualan Shopee dan diperbarui otomatis setelah sinkron harian pukul 21.00 WIB.
+      Periode memakai kolom Waktu Selesai (Dana Lepas).
+    </footer>
+  </div>
+
+  <div id="memuat" class="memuat" role="status">Memuat…</div>
+
+  <script src="vendor/chart.umd.js"></script>
+  <script src="kripto.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
