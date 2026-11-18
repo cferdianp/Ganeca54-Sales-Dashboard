@@ -7,21 +7,23 @@
   const PILIHAN_SIMPAN = "ganeca-pilihan-v1";
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const mqGerak = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  const GERAK = () => !mqGerak.matches;
+  const tunggu = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ------------------------------------------------------------------ format
   const fmtAngka = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
   const fmtDes = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
   const fmtPct = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
-  const BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
-  const BULAN_PANJANG = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus",
+  const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus",
     "September", "Oktober", "November", "Desember"];
 
   function rp(x) { return (x < 0 ? "-Rp" : "Rp") + fmtAngka.format(Math.abs(Math.round(x))); }
   function rpRingkas(x) {
     const a = Math.abs(x), t = x < 0 ? "-" : "";
-    if (a >= 1e9) return t + "Rp" + fmtDes.format(a / 1e9) + " M";
-    if (a >= 1e6) return t + "Rp" + fmtDes.format(a / 1e6) + " jt";
-    if (a >= 1e3) return t + "Rp" + fmtAngka.format(a / 1e3) + " rb";
+    if (a >= 1e9) return t + "Rp" + fmtDes.format(a / 1e9) + " miliar";
+    if (a >= 1e6) return t + "Rp" + fmtDes.format(a / 1e6) + " juta";
+    if (a >= 1e3) return t + "Rp" + fmtAngka.format(a / 1e3) + " ribu";
     return rp(x);
   }
   function pct(x) { return fmtPct.format(x * 100) + "%"; }
@@ -34,9 +36,9 @@
     return h + " hari" + (jj ? " " + jj + " jam" : "");
   }
   function durasiSumbu(hari) {
-    if (hari < 1 / 24) return Math.round(hari * 1440) + "m";
-    if (hari < 1) return fmtDes.format(Math.round(hari * 24 * 10) / 10) + "j";
-    return fmtDes.format(Math.round(hari * 10) / 10) + "h";
+    if (hari < 1 / 24) return Math.round(hari * 1440) + " menit";
+    if (hari < 1) return fmtDes.format(Math.round(hari * 24 * 10) / 10) + " jam";
+    return fmtDes.format(Math.round(hari * 10) / 10) + " hari";
   }
   const FORMAT = {
     rp: { teks: rp, sumbu: rpRingkas },
@@ -52,21 +54,102 @@
   function isoTgl(s) { return keTanggal(s).toISOString().slice(0, 10); }
   function dibuatTeks(t) {
     const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(t || "");
-    return m ? `${+m[3]} ${BULAN[+m[2] - 1]} ${m[1]}, ${m[4]}.${m[5]} WIB` : t;
+    return m ? `${+m[3]} ${BULAN[+m[2] - 1]} ${m[1]}, pukul ${m[4]}.${m[5]} WIB` : t;
   }
   function hariIniWIB() { const d = new Date(Date.now() + 7 * 3600000); return [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()]; }
 
   // ------------------------------------------------------------------ status
-  let DATA = null, PESANAN = [], PRODUK = [];
+  let DATA = null, PESANAN = [], PRODUK = [], SUDAH_DIBUAT = false;
   const pilihan = muatPilihan();
   const grafik = {};
 
   function muatPilihan() {
-    try { return Object.assign({ periode: "semua", tanpaRetur: false, stat: {}, ukuran: "pcs", sku: null },
-      JSON.parse(localStorage.getItem(PILIHAN_SIMPAN) || "{}")); }
-    catch (e) { return { periode: "semua", tanpaRetur: false, stat: {}, ukuran: "pcs", sku: null }; }
+    const dasar = { periode: "semua", tanpaRetur: false, stat: {}, ukuran: "pcs", sku: null };
+    try { return Object.assign(dasar, JSON.parse(localStorage.getItem(PILIHAN_SIMPAN) || "{}")); }
+    catch (e) { return dasar; }
   }
   function simpanPilihan() { try { localStorage.setItem(PILIHAN_SIMPAN, JSON.stringify(pilihan)); } catch (e) { /* abaikan */ } }
+
+  // ------------------------------------------------------------------ gerak
+  /** Angka berjalan dari nilai sebelumnya ke nilai baru. */
+  function hitungNaik(el, nilai, fmt) {
+    el._fmt = fmt; el._target = nilai;
+    const dari = typeof el._nilai === "number" && isFinite(el._nilai) ? el._nilai : 0;
+    el._nilai = nilai;
+    cancelAnimationFrame(el._raf);
+    const tersembunyi = el.closest(".muncul:not(.terlihat)");
+    if (!GERAK() || typeof nilai !== "number" || !isFinite(nilai) || tersembunyi || dari === nilai) {
+      el.textContent = fmt(nilai); return;
+    }
+    const t0 = performance.now(), lama = 900;
+    const langkah = (t) => {
+      const p = Math.min(1, (t - t0) / lama), e = 1 - Math.pow(1 - p, 4);
+      el.textContent = fmt(p < 1 ? dari + (nilai - dari) * e : nilai);
+      if (p < 1) el._raf = requestAnimationFrame(langkah);
+    };
+    el._raf = requestAnimationFrame(langkah);
+  }
+
+  function ulangGerak(el) {
+    el.querySelectorAll("canvas").forEach((cv) => {
+      const c = window.Chart && Chart.getChart(cv);
+      if (c) { c.$tiba = false; c.reset(); c.update(); }
+    });
+    el.querySelectorAll("[data-hitung]").forEach((n) => {
+      if (typeof n._target === "number") { n._nilai = 0; hitungNaik(n, n._target, n._fmt); }
+    });
+    el.querySelectorAll(".seg, .isi").forEach((s) => {
+      const prop = s.classList.contains("seg") ? "flexGrow" : "width";
+      const v = s.style[prop];
+      s.style.transition = "none"; s.style[prop] = prop === "width" ? "0%" : "0";
+      void s.offsetWidth;
+      s.style.transition = ""; s.style[prop] = v;
+    });
+  }
+
+  const pengamat = "IntersectionObserver" in window ? new IntersectionObserver((entri) => {
+    for (const e of entri) {
+      if (!e.isIntersecting) continue;
+      const el = e.target;
+      pengamat.unobserve(el);
+      el.classList.add("terlihat");
+      ulangGerak(el);
+      setTimeout(() => el.style.removeProperty("--tunda"), 1200);
+    }
+  }, { rootMargin: "0px 0px -6% 0px", threshold: 0.12 }) : null;
+
+  function daftarkanMuncul(el, tunda) {
+    if (!pengamat || !GERAK()) return;
+    el.classList.add("muncul");
+    el.style.setProperty("--tunda", (tunda || 0) + "ms");
+    pengamat.observe(el);
+  }
+
+  /** Penanda pilihan yang bergeser di bawah tombol aktif. */
+  function pasangIndikator(wadah) {
+    if (!wadah) return;
+    let ind = wadah.querySelector(":scope > .indikator");
+    const baru = !ind;
+    if (baru) {
+      ind = document.createElement("span"); ind.className = "indikator"; ind.setAttribute("aria-hidden", "true");
+      wadah.prepend(ind);
+    }
+    const aktif = wadah.querySelector('button[aria-checked="true"]');
+    if (!aktif || !aktif.offsetWidth) { ind.style.opacity = "0"; return; }
+    const lompat = baru || ind.style.opacity === "0" || !GERAK();
+    if (lompat) ind.style.transition = "none";
+    ind.style.opacity = "1";
+    ind.style.width = aktif.offsetWidth + "px";
+    ind.style.height = aktif.offsetHeight + "px";
+    ind.style.transform = `translate(${aktif.offsetLeft}px, ${aktif.offsetTop}px)`;
+    if (lompat) { void ind.offsetWidth; ind.style.transition = ""; }
+    if (wadah.scrollWidth > wadah.clientWidth) {
+      const kiri = aktif.offsetLeft, kanan = kiri + aktif.offsetWidth;
+      if (kiri < wadah.scrollLeft || kanan > wadah.scrollLeft + wadah.clientWidth) {
+        wadah.scrollTo({ left: Math.max(0, kiri - 24), behavior: GERAK() && !baru ? "smooth" : "auto" });
+      }
+    }
+  }
 
   // ------------------------------------------------------------------ data
   function siapkan(data) {
@@ -91,9 +174,9 @@
     const besok = keSerial(y, m, d + 1);
     switch (pilihan.periode) {
       case "30h": return [keSerial(y, m, d - 29), besok, "30 hari terakhir"];
-      case "bulan_ini": return [keSerial(y, m, 1), keSerial(y, m + 1, 1), BULAN_PANJANG[m] + " " + y];
+      case "bulan_ini": return [keSerial(y, m, 1), keSerial(y, m + 1, 1), BULAN[m] + " " + y];
       case "bulan_lalu": { const t = new Date(Date.UTC(y, m - 1, 1));
-        return [keSerial(y, m - 1, 1), keSerial(y, m, 1), BULAN_PANJANG[t.getUTCMonth()] + " " + t.getUTCFullYear()]; }
+        return [keSerial(y, m - 1, 1), keSerial(y, m, 1), BULAN[t.getUTCMonth()] + " " + t.getUTCFullYear()]; }
       case "3bln": return [keSerial(y, m - 2, 1), keSerial(y, m + 1, 1), "3 bulan terakhir"];
       case "tahun_ini": return [keSerial(y, 0, 1), keSerial(y + 1, 0, 1), "Tahun " + y];
       case "rentang": {
@@ -127,7 +210,7 @@
     return { n, min: min[kunci], minNo: min.no, maks: maks[kunci], maksNo: maks.no, median, rata: total / n, total, urut };
   }
 
-  // ------------------------------------------------------------------ warna dari CSS
+  // ------------------------------------------------------------------ grafik
   function warna() {
     const cs = getComputedStyle(document.documentElement);
     const g = (v) => cs.getPropertyValue(v).trim();
@@ -135,27 +218,78 @@
       tinta: g("--tinta"), tinta2: g("--tinta-2"), redup: g("--tinta-redup"), permukaan: g("--permukaan") };
   }
 
+  function animasiBatang() {
+    if (!GERAK()) return false;
+    return {
+      duration: 800, easing: "easeOutQuart",
+      delay: (c) => (c.type === "data" && c.mode === "default" && !c.chart.$tiba ? Math.min(c.dataIndex * 35, 600) : 0),
+      onComplete: (c) => { c.chart.$tiba = true; },
+    };
+  }
+
   function grafikBatang(id, label, nilai, opsi) {
     const W = warna();
-    const cfg = {
+    const options = {
+      responsive: true, maintainAspectRatio: false, animation: animasiBatang(),
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: W.permukaan, titleColor: W.tinta, bodyColor: W.tinta2, borderColor: W.garis, borderWidth: 1,
+        padding: 10, cornerRadius: 10, displayColors: false, callbacks: opsi.tooltip } },
+      scales: {
+        x: { grid: { display: false }, border: { color: W.sumbu }, ticks: { color: W.redup, font: { size: 10 },
+          maxRotation: 0, autoSkip: true, autoSkipPadding: 8 } },
+        y: { beginAtZero: true, grid: { color: W.garis, lineWidth: 1 }, border: { display: false },
+          ticks: { color: W.redup, font: { size: 10 }, maxTicksLimit: 4, callback: opsi.sumbuY || ((v) => v) } },
+      },
+    };
+    const ch = grafik[id];
+    if (ch) {
+      ch.data.labels = label;
+      Object.assign(ch.data.datasets[0], { data: nilai, backgroundColor: W.seri1, hoverBackgroundColor: W.seri1 });
+      ch.options = options;
+      ch.update();
+      return;
+    }
+    grafik[id] = new Chart($(id), {
       type: "bar",
       data: { labels: label, datasets: [{ data: nilai, backgroundColor: W.seri1, hoverBackgroundColor: W.seri1,
         borderRadius: 4, borderSkipped: "start", maxBarThickness: 24, categoryPercentage: 0.9, barPercentage: 0.92 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false,
-        plugins: { legend: { display: false }, tooltip: {
-          backgroundColor: W.permukaan, titleColor: W.tinta, bodyColor: W.tinta2, borderColor: W.garis, borderWidth: 1,
-          padding: 8, displayColors: false, callbacks: opsi.tooltip } },
-        scales: {
-          x: { grid: { display: false }, border: { color: W.sumbu }, ticks: { color: W.redup, font: { size: 10 },
-            maxRotation: 0, autoSkip: true, autoSkipPadding: 6 } },
-          y: { beginAtZero: true, grid: { color: W.garis, lineWidth: 1 }, border: { display: false },
-            ticks: { color: W.redup, font: { size: 10 }, maxTicksLimit: 4, callback: opsi.sumbuY || ((v) => v) } },
-        },
-      },
+      options,
+    });
+  }
+
+  function hapusGrafik(id) { if (grafik[id]) { grafik[id].destroy(); delete grafik[id]; } }
+
+  function garisMini(label, nilai) {
+    const cv = $("garis-mini");
+    if (!cv) return;
+    if (!nilai.length) { hapusGrafik("garis-mini"); return; }
+    const isi = (ctx) => {
+      const { chart } = ctx, area = chart.chartArea;
+      if (!area) return "rgba(255,255,255,0.15)";
+      const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+      g.addColorStop(0, "rgba(255,255,255,0.38)"); g.addColorStop(1, "rgba(255,255,255,0)");
+      return g;
     };
-    if (grafik[id]) grafik[id].destroy();
-    grafik[id] = new Chart($(id), cfg);
+    const titik = (c) => (c.dataIndex === nilai.length - 1 ? 3.5 : 0);
+    const ch = grafik["garis-mini"];
+    if (ch) {
+      ch.data.labels = label; ch.data.datasets[0].data = nilai; ch.data.datasets[0].pointRadius = titik;
+      ch.options.animation = GERAK() ? { duration: 900, easing: "easeOutQuart" } : false;
+      ch.update(); return;
+    }
+    grafik["garis-mini"] = new Chart(cv, {
+      type: "line",
+      data: { labels: label, datasets: [{ data: nilai, borderColor: "rgba(255,255,255,0.95)", borderWidth: 2,
+        tension: 0.35, fill: true, backgroundColor: isi, pointRadius: titik, pointBackgroundColor: "#fff",
+        pointBorderWidth: 0 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, events: [],
+        animation: GERAK() ? { duration: 900, easing: "easeOutQuart" } : false,
+        layout: { padding: { top: 8, right: 8, left: 0, bottom: 0 } },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+      },
+    });
   }
 
   function histogram(id, stat, fmt) {
@@ -173,12 +307,47 @@
       tooltip: {
         title: (it) => {
           const k = it[0].dataIndex, b = batas[k];
-          const kiri = k === 0 && u[0] < lo ? "≤ " + fmt.teks(b[1]) : fmt.teks(b[0]) + " – " + fmt.teks(b[1]);
-          return k === nb - 1 && u[u.length - 1] > hi ? "≥ " + fmt.teks(b[0]) : kiri;
+          if (k === nb - 1 && u[u.length - 1] > hi) return "≥ " + fmt.teks(b[0]);
+          if (k === 0 && u[0] < lo) return "≤ " + fmt.teks(b[1]);
+          return fmt.teks(b[0]) + " – " + fmt.teks(b[1]);
         },
         label: (it) => it.raw + " pesanan",
       },
     });
+  }
+
+  // ------------------------------------------------------------------ ringkasan
+  const IKON = {
+    naik: '<polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/>',
+    label: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+    tas: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+    kotak: '<path d="M21 8l-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+  };
+  const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+  const KPI = [
+    { id: "pa", kelas: "utama", label: "Penghasilan Akhir", ikon: IKON.naik, fmt: rp },
+    { id: "v", kelas: "lebar", label: "Total Nominal Seluruh Produk", ikon: IKON.label, fmt: rp },
+    { id: "n", label: "Jumlah pesanan", ikon: IKON.tas, fmt: (x) => fmtAngka.format(x) },
+    { id: "w", label: "Jumlah pcs bersih", ikon: IKON.kotak, fmt: (x) => fmtDes.format(Math.round(x * 100) / 100) },
+  ];
+
+  function buatKPI() {
+    $("kpi").innerHTML = KPI.map((k) => `<div class="kartu ${k.kelas || ""}">
+      <div class="baris-label"><span class="ikon">${svg(k.ikon)}</span><span class="label">${k.label}</span></div>
+      <div class="nilai" id="kpi-${k.id}" data-hitung></div><div class="ket" id="kpi-ket-${k.id}"></div>
+      ${k.kelas === "utama" ? '<div class="garis-mini"><canvas id="garis-mini" aria-hidden="true"></canvas></div>' : ""}</div>`).join("");
+    [...$("kpi").children].forEach((el, i) => daftarkanMuncul(el, i * 70));
+  }
+
+  function gambarKPI(baris) {
+    const n = baris.length;
+    const jum = (k) => baris.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
+    const nilai = { pa: jum("pa"), v: jum("v"), n, w: jum("w") };
+    for (const k of KPI) hitungNaik($("kpi-" + k.id), nilai[k.id], k.fmt);
+    $("kpi-ket-pa").textContent = n ? `Rata-rata ${rp(nilai.pa / n)} per pesanan` : "Tidak ada pesanan pada periode ini";
+    $("kpi-ket-v").textContent = n ? `Rata-rata ${rp(nilai.v / n)} per pesanan` : "";
+    $("kpi-ket-n").textContent = pilihan.tanpaRetur ? "Tanpa pesanan retur" : "Termasuk pesanan retur";
+    $("kpi-ket-w").textContent = n ? `Rata-rata ${fmtDes.format(nilai.w / n)} pcs per pesanan` : "";
   }
 
   // ------------------------------------------------------------------ kartu statistik
@@ -191,22 +360,23 @@
       catatan: "Jarak dari pesanan sebelumnya, diurutkan menurut waktu pesan." },
     { id: "u", grup: "grup-waktu", judul: "Selisih Antar Waktu Pengiriman", jenis: "durasi",
       catatan: "Jarak dari pengiriman sebelumnya, diurutkan menurut waktu kirim." },
-    { id: "v", grup: "grup-nilai", judul: "Total Nominal Seluruh Produk (TNSP)", jenis: "rp", total: true },
+    { id: "v", grup: "grup-nilai", judul: "Total Nominal Seluruh Produk", jenis: "rp", total: true },
     { id: "w", grup: "grup-nilai", judul: "Net Count Jumlah Pcs", jenis: "pcs", total: true },
-    { id: "pa", grup: "grup-nilai", judul: "Penghasilan Akhir (PA)", jenis: "rp", total: true },
-    { id: "av", grup: "grup-biaya", judul: "% Perbandingan Total Seluruh Biaya (TSB) dengan Penghasilan Akhir (PA)", jenis: "pct" },
+    { id: "pa", grup: "grup-nilai", judul: "Penghasilan Akhir", jenis: "rp", total: true },
+    { id: "av", grup: "grup-biaya", judul: "% Perbandingan Total Seluruh Biaya dengan Penghasilan Akhir", jenis: "pct" },
     { id: "ax", grup: "grup-biaya", judul: "Penghasilan yang Ekstra/(-Hilang) karena Pesan via Shopee", jenis: "rp", total: true },
     { id: "ay", grup: "grup-biaya", judul: "% Penghasilan yang Ekstra/(-Hilang) karena Pesan via Shopee", jenis: "pct" },
     { id: "bk", grup: "grup-biaya", judul: "Penghematan dengan Gratis Ongkir XTRA", jenis: "rp", total: true, na: true },
   ];
-  const STAT_NAMA = { min: "Min", maks: "Maks", median: "Median", rata: "Rata-rata", total: "Total" };
+  const STAT_NAMA = { min: "Minimum", maks: "Maksimum", median: "Median", rata: "Rata-rata", total: "Total" };
 
   function buatKartu() {
+    const urutan = {};
     for (const m of METRIK) {
       const el = document.createElement("article");
-      el.className = "kartu";
-      el.innerHTML = `<div class="kepala-kartu"><h3>${m.judul}</h3><div class="segmen" role="radiogroup" aria-label="Nilai"></div></div>
-        <p class="angka-besar" id="nilai-${m.id}"></p><p class="angka-ket" id="ket-${m.id}"></p>
+      el.className = "kartu angkat";
+      el.innerHTML = `<div class="kepala-kartu"><h3>${m.judul}</h3><div class="segmen trek" role="radiogroup" aria-label="Nilai"></div></div>
+        <p class="angka-besar" id="nilai-${m.id}" data-hitung></p><p class="angka-ket" id="ket-${m.id}"></p>
         <div class="kanvas"><canvas id="hist-${m.id}" aria-label="Sebaran ${m.judul}"></canvas></div>
         ${m.catatan || m.na ? `<p class="catatan" id="cat-${m.id}">${m.catatan || ""}</p>` : ""}`;
       const seg = el.querySelector(".segmen");
@@ -217,6 +387,8 @@
         seg.appendChild(b);
       }
       $(m.grup).appendChild(el);
+      urutan[m.grup] = (urutan[m.grup] || 0) + 1;
+      daftarkanMuncul(el, ((urutan[m.grup] - 1) % 3) * 80);
     }
   }
 
@@ -224,45 +396,34 @@
     const fmt = FORMAT[m.jenis];
     const st = statistik(baris, m.id);
     const pilih = pilihan.stat[m.id] || "median";
-    const seg = $("nilai-" + m.id).parentElement.querySelectorAll(".segmen button");
-    seg.forEach((b) => b.setAttribute("aria-checked", String(b.dataset.stat === pilih)));
+    const kartu = $("nilai-" + m.id).parentElement;
+    const seg = kartu.querySelector(".segmen");
+    seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.stat === pilih)));
+    pasangIndikator(seg);
     if (m.na) {
       const na = baris.filter((x) => x.bk === "N/A").length;
       $("cat-" + m.id).textContent = na ? `${na} pesanan bernilai "N/A" tidak ikut dihitung.` : "";
     }
     if (!st) {
-      $("nilai-" + m.id).textContent = "–";
+      hitungNaik($("nilai-" + m.id), NaN, () => "–");
       $("ket-" + m.id).textContent = "Tidak ada data pada periode ini";
-      if (grafik["hist-" + m.id]) { grafik["hist-" + m.id].destroy(); delete grafik["hist-" + m.id]; }
+      hapusGrafik("hist-" + m.id);
       return;
     }
-    $("nilai-" + m.id).textContent = fmt.teks(st[pilih]);
-    const ket = { min: `Pesanan #${st.minNo}`, maks: `Pesanan #${st.maksNo}`, median: `Nilai tengah dari ${st.n} pesanan`,
+    hitungNaik($("nilai-" + m.id), st[pilih], fmt.teks);
+    const ket = { min: `Pesanan ke-${st.minNo}`, maks: `Pesanan ke-${st.maksNo}`, median: `Nilai tengah dari ${st.n} pesanan`,
       rata: `Rata-rata dari ${st.n} pesanan`, total: `Jumlah dari ${st.n} pesanan` }[pilih];
     $("ket-" + m.id).textContent = ket;
     histogram("hist-" + m.id, st, fmt);
   }
 
-  // ------------------------------------------------------------------ bagian lain
-  function gambarKPI(baris) {
-    const n = baris.length;
-    const jum = (k) => baris.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
-    const tnsp = jum("v"), pa = jum("pa"), pcs = jum("w");
-    const kotak = [
-      ["Jumlah pesanan", fmtAngka.format(n), pilihan.tanpaRetur ? "Tanpa pesanan retur" : ""],
-      ["Total TNSP", rp(tnsp), n ? "Rata-rata " + rp(tnsp / n) : ""],
-      ["Total PA", rp(pa), n ? "Rata-rata " + rp(pa / n) : ""],
-      ["Total pcs", fmtDes.format(pcs), n ? "Rata-rata " + fmtDes.format(pcs / n) + " pcs" : ""],
-    ];
-    $("kpi").innerHTML = kotak.map(([l, v, k]) =>
-      `<div class="kartu"><div class="label">${l}</div><div class="nilai">${v}</div><div class="ket">${k}</div></div>`).join("");
-  }
-
+  // ------------------------------------------------------------------ tren
   function gambarTren(baris) {
     const kosong = !baris.length;
     document.querySelectorAll(".kanvas.tren").forEach((el) => el.classList.toggle("kosong", kosong));
     if (kosong) {
-      ["tren-pa", "tren-n"].forEach((id) => { if (grafik[id]) { grafik[id].destroy(); delete grafik[id]; } });
+      ["tren-pa", "tren-n"].forEach(hapusGrafik);
+      garisMini([], []);
       $("tren-satuan-1").textContent = $("tren-satuan-2").textContent = "";
       return;
     }
@@ -278,8 +439,8 @@
     if (harian) {
       for (let s = Math.floor(awal); s <= Math.floor(akhir); s++) { idx[isoTgl(s)] = label.length; label.push(isoTgl(s)); }
     } else {
-      const a = keTanggal(awal), b = keTanggal(akhir);
-      for (let y = a.getUTCFullYear(), m = a.getUTCMonth(); y < b.getUTCFullYear() || (y === b.getUTCFullYear() && m <= b.getUTCMonth()); m === 11 ? (y++, m = 0) : m++) {
+      const da = keTanggal(awal), db = keTanggal(akhir);
+      for (let y = da.getUTCFullYear(), m = da.getUTCMonth(); y < db.getUTCFullYear() || (y === db.getUTCFullYear() && m <= db.getUTCMonth()); m === 11 ? (y++, m = 0) : m++) {
         const k = y + "-" + String(m + 1).padStart(2, "0"); idx[k] = label.length; label.push(k);
       }
     }
@@ -289,33 +450,58 @@
       if (harian) return p[2] + " " + BULAN[p[1] - 1];
       return ix === 0 || p[1] === 1 ? [BULAN[p[1] - 1], String(p[0])] : BULAN[p[1] - 1]; });
     const judul = label.map((k) => { const p = k.split("-").map(Number);
-      return harian ? p[2] + " " + BULAN_PANJANG[p[1] - 1] + " " + p[0] : BULAN_PANJANG[p[1] - 1] + " " + p[0]; });
+      return harian ? p[2] + " " + BULAN[p[1] - 1] + " " + p[0] : BULAN[p[1] - 1] + " " + p[0]; });
     $("tren-satuan-1").textContent = $("tren-satuan-2").textContent = harian ? "per hari" : "per bulan";
     grafikBatang("tren-pa", tampil, pa, { sumbuY: (v) => rpRingkas(v),
       tooltip: { title: (it) => judul[it[0].dataIndex], label: (it) => rp(it.raw) } });
     grafikBatang("tren-n", tampil, n, { sumbuY: (v) => (Number.isInteger(v) ? v : ""),
       tooltip: { title: (it) => judul[it[0].dataIndex], label: (it) => it.raw + " pesanan" } });
+    garisMini(judul, pa);
+  }
+
+  // ------------------------------------------------------------------ lokasi
+  const LOKASI = [
+    { judul: "% Pesanan di dalam/luar Jabodetabek", kunci: "i", nilai: [["Ya", "Dalam Jabodetabek"], ["Tidak", "Luar Jabodetabek"]] },
+    { judul: "% Pesanan di dalam/luar Pulau Jawa", kunci: "j", nilai: [["Dalam", "Dalam Pulau Jawa"], ["Luar", "Luar Pulau Jawa"]] },
+  ];
+
+  function buatLokasi() {
+    LOKASI.forEach((b, i) => {
+      const el = document.createElement("article");
+      el.className = "kartu angkat";
+      el.innerHTML = `<h3>${b.judul}</h3><div class="seg-batang" role="img"><div class="seg"></div><div class="seg"></div></div>
+        <div class="legenda">${b.nilai.map(([, nama]) =>
+          `<span><i></i>${nama} <b data-hitung></b> <span class="jml"></span></span>`).join("")}</div>
+        <p class="catatan"></p>`;
+      $("lokasi").appendChild(el);
+      daftarkanMuncul(el, i * 80);
+    });
   }
 
   function gambarLokasi(baris) {
-    const W = warna();
-    const bagian = [
-      { judul: "% Pesanan di dalam/luar Jabodetabek", kunci: "i", nilai: [["Ya", "Dalam Jabodetabek"], ["Tidak", "Luar Jabodetabek"]] },
-      { judul: "% Pesanan di dalam/luar Pulau Jawa", kunci: "j", nilai: [["Dalam", "Dalam Pulau Jawa"], ["Luar", "Luar Pulau Jawa"]] },
-    ];
-    $("lokasi").innerHTML = bagian.map((b) => {
+    const W = warna(), warnaSeg = [W.seri1, W.seri2];
+    [...$("lokasi").children].forEach((el, i) => {
+      const b = LOKASI[i];
       const hit = b.nilai.map(([v]) => baris.filter((x) => x[b.kunci] === v).length);
       const tot = hit[0] + hit[1], kosong = baris.length - tot;
-      const warnaSeg = [W.seri1, W.seri2];
-      const seg = tot ? hit.map((h, k) => h ? `<div style="flex:${h};background:${warnaSeg[k]}" title="${b.nilai[k][1]}: ${pct(h / tot)} (${h})"></div>` : "").join("")
-        : `<div style="flex:1;background:${W.garis}"></div>`;
-      const leg = b.nilai.map(([, nama], k) =>
-        `<span><i style="background:${warnaSeg[k]}"></i>${nama} <b>${tot ? pct(hit[k] / tot) : "–"}</b> (${hit[k]})</span>`).join("");
-      return `<article class="kartu"><h3>${b.judul}</h3><div class="seg-batang" role="img" aria-label="${b.nilai.map(([, nama], k) => nama + " " + (tot ? pct(hit[k] / tot) : "-")).join(", ")}">${seg}</div>
-        <div class="legenda">${leg}</div>${kosong ? `<p class="catatan">${kosong} pesanan tanpa data alamat tidak ikut dihitung.</p>` : ""}</article>`;
-    }).join("");
+      const seg = el.querySelectorAll(".seg");
+      seg.forEach((s, k) => {
+        s.style.background = warnaSeg[k];
+        s.style.flexGrow = tot ? String(hit[k]) : "0";
+        s.title = `${b.nilai[k][1]}: ${tot ? pct(hit[k] / tot) : "–"} (${hit[k]})`;
+      });
+      seg[1].style.boxShadow = hit[0] && hit[1] ? "" : "none";
+      el.querySelector(".seg-batang").setAttribute("aria-label",
+        b.nilai.map(([, nama], k) => nama + " " + (tot ? pct(hit[k] / tot) : "-")).join(", "));
+      el.querySelectorAll(".legenda i").forEach((e, k) => { e.style.background = warnaSeg[k]; });
+      el.querySelectorAll(".legenda b").forEach((e, k) =>
+        hitungNaik(e, tot ? hit[k] / tot : NaN, (v) => (isFinite(v) ? pct(v) : "–")));
+      el.querySelectorAll(".jml").forEach((e, k) => { e.textContent = `(${hit[k]})`; });
+      el.querySelector(".catatan").textContent = kosong ? `${kosong} pesanan tanpa data alamat tidak ikut dihitung.` : "";
+    });
   }
 
+  // ------------------------------------------------------------------ produk
   const UKURAN = { pcs: "Pcs bersih", pesanan: "Jumlah pesanan", nominal: "Nominal" };
   function singkatSKU(s) { return s.replace(/^Indonesian Batik Motif /, "").replace(/^Indonesia Batik /, ""); }
   function nilaiUkuran(v) { return pilihan.ukuran === "nominal" ? rp(v) : fmtDes.format(v) + (pilihan.ukuran === "pcs" ? " pcs" : " pesanan"); }
@@ -335,22 +521,29 @@
   function daftarBatang(el, items, tombol, aktif) {
     const maks = Math.max(1, ...items.map((x) => Math.max(0, x[pilihan.ukuran])));
     el.innerHTML = "";
-    for (const it of items) {
+    const isi = [];
+    items.forEach((it, i) => {
       const b = document.createElement(tombol ? "button" : "div");
       b.className = "baris-batang"; b.setAttribute("role", "listitem");
-      if (tombol) { b.type = "button"; b.setAttribute("aria-pressed", String(it.nama === aktif)); }
+      if (tombol) { b.type = "button"; b.setAttribute("aria-pressed", String(it.nama === aktif)); b.dataset.sku = it.nama; }
       const w = Math.max(0, it[pilihan.ukuran]) / maks * 100;
       b.innerHTML = `<span class="nama" title="${esc(it.nama)}">${esc(singkatSKU(it.nama) || "(tanpa varian)")}</span><span class="nilai">${nilaiUkuran(it[pilihan.ukuran])}</span>
-        <span class="jalur"><span class="isi" style="width:${w}%;display:block"></span></span>`;
-      if (tombol) b.addEventListener("click", () => { pilihan.sku = it.nama; simpanPilihan(); gambarProduk(tersaring()); });
+        <span class="jalur"><span class="isi"></span></span>`;
+      const bar = b.querySelector(".isi");
+      bar.style.setProperty("--tunda", Math.min(i * 45, 500) + "ms");
+      isi.push([bar, w]);
+      if (tombol) b.addEventListener("click", () => { pilihan.sku = it.nama; simpanPilihan(); gambarProduk(tersaring(), true); });
       el.appendChild(b);
-    }
+    });
+    void el.offsetWidth;
+    isi.forEach(([bar, w]) => { bar.style.width = w + "%"; });
   }
 
-  function gambarProduk(baris) {
+  function gambarProduk(baris, hanyaVarian) {
     const nos = new Set(baris.map((x) => x.no));
     const rows = PRODUK.filter((p) => nos.has(p.no));
     document.querySelectorAll("#ukuran-produk button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.u === pilihan.ukuran)));
+    pasangIndikator($("ukuran-produk"));
     const sku = agregat(rows, (p) => p.sku);
     if (!sku.length) {
       $("sorot-produk").innerHTML = ""; $("daftar-sku").innerHTML = '<p class="sub">Tidak ada data pada periode ini.</p>';
@@ -364,7 +557,11 @@
     const kotak = (judul, it) => `<div><div class="label">${judul}</div><div class="nama">${seri(it[pilihan.ukuran])}</div><div class="ket">${nilaiUkuran(it[pilihan.ukuran])}</div></div>`;
     $("sorot-produk").innerHTML = kotak("Paling populer", atas) + (sku.length > 1 ? kotak("Paling tidak populer", bawah) : "");
     const aktif = sku.some((s) => s.nama === pilihan.sku) ? pilihan.sku : atas.nama;
-    daftarBatang($("daftar-sku"), sku, true, aktif);
+    if (hanyaVarian) {
+      $("daftar-sku").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sku === aktif)));
+    } else {
+      daftarBatang($("daftar-sku"), sku, true, aktif);
+    }
     const varian = agregat(rows.filter((p) => p.sku === aktif), (p) => p.varian);
     const vA = varian[0], vB = varian[varian.length - 1];
     const namaV = (n) => varian.filter((x) => x[pilihan.ukuran] === n).map((x) => x.nama || "(tanpa varian)").join(", ");
@@ -380,7 +577,7 @@
   function buatSaringan() {
     for (const [k, nama] of PERIODE) {
       const b = document.createElement("button");
-      b.type = "button"; b.className = "chip"; b.textContent = nama; b.dataset.p = k; b.setAttribute("role", "radio");
+      b.type = "button"; b.textContent = nama; b.dataset.p = k; b.setAttribute("role", "radio");
       b.addEventListener("click", () => { pilihan.periode = k; simpanPilihan(); gambarSemua(); });
       $("periode").appendChild(b);
     }
@@ -400,14 +597,25 @@
     }
     const nRetur = PESANAN.filter((x) => x.retur).length;
     $("label-retur").textContent = `Kecualikan retur (${nRetur} pesanan)`;
+    // bayangan pada saringan saat menempel di atas
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(([e]) => $("saringan").classList.toggle("melayang", !e.isIntersecting))
+        .observe($("penanda-saringan"));
+    }
+    buatKPI(); buatLokasi(); buatKartu();
+    document.querySelectorAll(".grup > .grid > .kartu, .grup > .kartu").forEach((el, i) => {
+      el.classList.add("angkat");
+      if (!el.classList.contains("muncul")) daftarkanMuncul(el, (i % 2) * 80);
+    });
   }
 
   function gambarSemua() {
-    document.querySelectorAll("#periode .chip").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === pilihan.periode)));
+    document.querySelectorAll("#periode button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === pilihan.periode)));
+    pasangIndikator($("periode"));
     $("rentang").hidden = pilihan.periode !== "rentang";
     const baris = tersaring();
     const [, , teks] = rentangPeriode();
-    $("ringkas-periode").textContent = `${teks} · ${baris.length} pesanan menurut Waktu Selesai (Dana Lepas)`;
+    $("ringkas-periode").textContent = `${teks} · ${fmtAngka.format(baris.length)} pesanan menurut Waktu Selesai (Dana Lepas)`;
     gambarKPI(baris);
     gambarTren(baris);
     gambarLokasi(baris);
@@ -423,11 +631,13 @@
   function mulai(data) {
     DATA = data;
     siapkan(data);
+    if (window.Chart) Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
     const ps = PESANAN.map((x) => x.p).filter((x) => typeof x === "number");
-    $("info-data").textContent = `${PESANAN.length} pesanan · dana lepas terakhir ${ps.length ? tglTeks(Math.max(...ps)) : "-"}` +
-      (data.dibuat ? ` · diperbarui ${dibuatTeks(data.dibuat)}` : "");
-    if (!$("periode").children.length) { buatSaringan(); buatKartu(); }
+    $("info-data").innerHTML = `${fmtAngka.format(PESANAN.length)} pesanan · dana lepas terakhir ${ps.length ? tglTeks(Math.max(...ps)) : "-"}` +
+      (data.dibuat ? `<br><span class="denyut" aria-hidden="true"></span>Diperbarui ${esc(dibuatTeks(data.dibuat))}` : "");
     tampil("aplikasi");
+    if (GERAK()) $("aplikasi").classList.add("tiba");
+    if (!SUDAH_DIBUAT) { SUDAH_DIBUAT = true; buatSaringan(); }
     gambarSemua();
   }
 
@@ -436,6 +646,16 @@
     if (r.status === 404) throw new Error("BELUM_ADA");
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
+  }
+
+  function sibuk(ya) {
+    const t = $("tombol-masuk");
+    t.disabled = ya; t.classList.toggle("sibuk", ya);
+    $("teks-masuk").textContent = ya ? "Membuka…" : "Buka dashboard";
+  }
+
+  function goyang(el) {
+    el.classList.remove("goyang"); void el.offsetWidth; el.classList.add("goyang");
   }
 
   async function init() {
@@ -460,20 +680,26 @@
     tampil("masuk");
     $("form-masuk").addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      const tombol = $("tombol-masuk");
-      tombol.disabled = true; $("pesan-masuk").textContent = ""; tombol.textContent = "Membuka…";
+      sibuk(true); $("pesan-masuk").textContent = "";
+      let data;
       try {
         const kunci = await GanecaKripto.turunkan($("sandi").value, amplop);
-        const data = await GanecaKripto.buka(amplop, kunci);
+        data = await GanecaKripto.buka(amplop, kunci);
         if ($("ingat").checked) {
           try { localStorage.setItem(KUNCI_SIMPAN, JSON.stringify({ salt: amplop.salt, kunci: GanecaKripto.keB64(kunci) })); }
           catch (e) { /* abaikan */ }
         }
-        $("sandi").value = "";
-        mulai(data);
       } catch (e) {
         $("pesan-masuk").textContent = e.message === "SANDI" ? "Kata sandi salah." : "Data tidak bisa dibuka (" + e.message + ").";
-      } finally { tombol.disabled = false; tombol.textContent = "Buka dashboard"; }
+        goyang($("form-masuk"));
+        $("sandi").select();
+        sibuk(false);
+        return;
+      }
+      $("sandi").value = "";
+      if (GERAK()) { $("form-masuk").classList.add("keluar-anim"); await tunggu(240); }
+      sibuk(false);
+      mulai(data);
     });
   }
 
@@ -482,9 +708,14 @@
     location.reload();
   });
 
-  // gambar ulang saat tema perangkat berubah (warna grafik ikut)
+  // gambar ulang saat tema perangkat berubah (warna grafik ikut), atur ulang penanda saat ukuran layar berubah
   if (window.matchMedia) {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (DATA) gambarSemua(); });
   }
+  let jedaUkuran = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(jedaUkuran);
+    jedaUkuran = setTimeout(() => { if (DATA) document.querySelectorAll(".trek").forEach(pasangIndikator); }, 120);
+  });
   init();
 })();
