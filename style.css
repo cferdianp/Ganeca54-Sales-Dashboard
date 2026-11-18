@@ -265,8 +265,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--aksen); out
 
 /* daftar batang (produk) */
 .sorot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 6px; }
-.sorot > div { border: 1px solid var(--garis); border-radius: 12px; padding: 10px 12px; min-width: 0; position: relative; overflow: hidden; }
-.sorot > div:first-child { background: linear-gradient(135deg, var(--ikon-latar), transparent 80%); border-color: transparent; }
+.sorot > div { border: 1px solid var(--garis); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.sorot > .total { grid-column: 1 / -1; border: 0; color: #fff; background: linear-gradient(135deg, var(--hero-a), var(--hero-b)); }
+.sorot > .total .label, .sorot > .total .ket { color: rgba(255, 255, 255, .9); }
+.sorot .angka { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; white-space: nowrap; }
+@media (min-width: 720px) {
+  .sorot { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)); }
+  .sorot > .total { grid-column: auto; }
+}
 .sorot .label { font-size: 12px; color: var(--tinta-2); }
 .sorot .nama { font-weight: 600; font-size: 14px; margin-top: 2px; }
 .sorot .nama .ket { font-weight: 400; }
@@ -283,6 +289,7 @@ button.baris-batang:active { transform: scale(.99); }
 .baris-batang[aria-pressed="true"] { background: var(--trek); }
 .baris-batang .nama { font-size: 13px; overflow-wrap: anywhere; }
 .baris-batang .nilai { font-size: 13px; color: var(--tinta-2); text-align: right; }
+.baris-batang .porsi { display: inline-block; min-width: 46px; color: var(--tinta-redup); font-size: 12px; }
 .baris-batang .jalur { grid-column: 1 / -1; height: 12px; }
 .baris-batang .isi {
   display: block; height: 12px; border-radius: 0 4px 4px 0; min-width: 2px; width: 0;

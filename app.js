@@ -518,7 +518,8 @@
       .sort((a, b) => b[pilihan.ukuran] - a[pilihan.ukuran] || a.nama.localeCompare(b.nama));
   }
 
-  function daftarBatang(el, items, tombol, aktif) {
+  function daftarBatang(el, items, tombol, aktif, total) {
+    const porsi = pilihan.ukuran !== "pesanan" && total > 0;
     const maks = Math.max(1, ...items.map((x) => Math.max(0, x[pilihan.ukuran])));
     el.innerHTML = "";
     const isi = [];
@@ -527,7 +528,8 @@
       b.className = "baris-batang"; b.setAttribute("role", "listitem");
       if (tombol) { b.type = "button"; b.setAttribute("aria-pressed", String(it.nama === aktif)); b.dataset.sku = it.nama; }
       const w = Math.max(0, it[pilihan.ukuran]) / maks * 100;
-      b.innerHTML = `<span class="nama" title="${esc(it.nama)}">${esc(singkatSKU(it.nama) || "(tanpa varian)")}</span><span class="nilai">${nilaiUkuran(it[pilihan.ukuran])}</span>
+      b.innerHTML = `<span class="nama" title="${esc(it.nama)}">${esc(singkatSKU(it.nama) || "(tanpa varian)")}</span><span class="nilai">${nilaiUkuran(it[pilihan.ukuran])}${porsi
+          ? ` <span class="porsi">${pct(it[pilihan.ukuran] / total)}</span>` : ""}</span>
         <span class="jalur"><span class="isi"></span></span>`;
       const bar = b.querySelector(".isi");
       bar.style.setProperty("--tunda", Math.min(i * 45, 500) + "ms");
@@ -555,19 +557,30 @@
       return esc(sama.slice(0, 3).join(", ")) + (sama.length > 3 ? ` <span class="ket">+${sama.length - 3} lainnya</span>` : "");
     };
     const kotak = (judul, it) => `<div><div class="label">${judul}</div><div class="nama">${seri(it[pilihan.ukuran])}</div><div class="ket">${nilaiUkuran(it[pilihan.ukuran])}</div></div>`;
-    $("sorot-produk").innerHTML = kotak("Paling populer", atas) + (sku.length > 1 ? kotak("Paling tidak populer", bawah) : "");
+    // total seluruh produk terjual pada periode ini (menurut ukuran yang dipilih)
+    const total = pilihan.ukuran === "pesanan" ? new Set(rows.map((p) => p.no)).size
+      : sku.reduce((a, x) => a + x[pilihan.ukuran], 0);
+    const jmlVarian = new Set(rows.map((p) => p.sku + "\u0000" + p.varian)).size;
+    const judulTotal = { pcs: "Total seluruh produk terjual", pesanan: "Total pesanan berisi produk",
+      nominal: "Total nominal seluruh produk terjual" }[pilihan.ukuran];
+    $("sorot-produk").innerHTML = `<div class="total"><div class="label">${judulTotal}</div>
+        <div class="angka" id="total-produk" data-hitung></div>
+        <div class="ket">dari ${sku.length} SKU Induk dan ${jmlVarian} varian${pilihan.ukuran === "pcs" ? " (pcs bersih, retur sudah dikurangi)" : ""}</div></div>` +
+      kotak("Paling populer", atas) + (sku.length > 1 ? kotak("Paling tidak populer", bawah) : "");
+    hitungNaik($("total-produk"), total, (v) => nilaiUkuran(pilihan.ukuran === "nominal" ? v : Math.round(v)));
     const aktif = sku.some((s) => s.nama === pilihan.sku) ? pilihan.sku : atas.nama;
     if (hanyaVarian) {
       $("daftar-sku").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sku === aktif)));
     } else {
-      daftarBatang($("daftar-sku"), sku, true, aktif);
+      daftarBatang($("daftar-sku"), sku, true, aktif, total);
     }
     const varian = agregat(rows.filter((p) => p.sku === aktif), (p) => p.varian);
     const vA = varian[0], vB = varian[varian.length - 1];
     const namaV = (n) => varian.filter((x) => x[pilihan.ukuran] === n).map((x) => x.nama || "(tanpa varian)").join(", ");
-    $("judul-varian").textContent = `Varian ${singkatSKU(aktif)}` + (varian.length > 1 && vA[pilihan.ukuran] !== vB[pilihan.ukuran]
+    const totalSku = (sku.find((x) => x.nama === aktif) || {})[pilihan.ukuran] || 0;
+    $("judul-varian").textContent = `Varian ${singkatSKU(aktif)} (${nilaiUkuran(totalSku)})` + (varian.length > 1 && vA[pilihan.ukuran] !== vB[pilihan.ukuran]
       ? ` · terpopuler ${namaV(vA[pilihan.ukuran])}; paling tidak populer ${namaV(vB[pilihan.ukuran])}` : "");
-    daftarBatang($("daftar-varian"), varian, false, null);
+    daftarBatang($("daftar-varian"), varian, false, null, totalSku);
   }
 
   // ------------------------------------------------------------------ saringan
