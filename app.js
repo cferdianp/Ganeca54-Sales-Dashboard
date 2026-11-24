@@ -322,11 +322,14 @@
     label: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
     tas: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
     kotak: '<path d="M21 8l-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+    persen: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
   };
   const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   const KPI = [
     { id: "pa", kelas: "utama", label: "Penghasilan Akhir", ikon: IKON.naik, fmt: rp },
     { id: "v", kelas: "lebar", label: "Total Nominal Seluruh Produk", ikon: IKON.label, fmt: rp },
+    { id: "rasio", kelas: "lebar persen", label: "Total Persentase Biaya Shopee", ikon: IKON.persen,
+      fmt: (x) => (isFinite(x) ? fmtPct.format(x * 100) + "%" : "–") },
     { id: "n", label: "Jumlah pesanan", ikon: IKON.tas, fmt: (x) => fmtAngka.format(x) },
     { id: "w", label: "Jumlah pcs bersih", ikon: IKON.kotak, fmt: (x) => fmtDes.format(Math.round(x * 100) / 100) },
   ];
@@ -334,7 +337,9 @@
   function buatKPI() {
     $("kpi").innerHTML = KPI.map((k) => `<div class="kartu ${k.kelas || ""}">
       <div class="baris-label"><span class="ikon">${svg(k.ikon)}</span><span class="label">${k.label}</span></div>
-      <div class="nilai" id="kpi-${k.id}" data-hitung></div><div class="ket" id="kpi-ket-${k.id}"></div>
+      <div class="nilai" id="kpi-${k.id}" data-hitung></div>
+      ${k.id === "rasio" ? '<div class="meter" aria-hidden="true"><span class="isi" id="kpi-meter"></span></div>' : ""}
+      <div class="ket" id="kpi-ket-${k.id}"></div>
       ${k.kelas === "utama" ? '<div class="garis-mini"><canvas id="garis-mini" aria-hidden="true"></canvas></div>' : ""}</div>`).join("");
     [...$("kpi").children].forEach((el, i) => daftarkanMuncul(el, i * 70));
   }
@@ -343,11 +348,16 @@
     const n = baris.length;
     const jum = (k) => baris.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
     const nilai = { pa: jum("pa"), v: jum("v"), n, w: jum("w") };
+    nilai.rasio = nilai.v ? nilai.pa / nilai.v : NaN;
     for (const k of KPI) hitungNaik($("kpi-" + k.id), nilai[k.id], k.fmt);
     $("kpi-ket-pa").textContent = n ? `Rata-rata ${rp(nilai.pa / n)} per pesanan` : "Tidak ada pesanan pada periode ini";
     $("kpi-ket-v").textContent = n ? `Rata-rata ${rp(nilai.v / n)} per pesanan` : "";
     $("kpi-ket-n").textContent = pilihan.tanpaRetur ? "Tanpa pesanan retur" : "Termasuk pesanan retur";
     $("kpi-ket-w").textContent = n ? `Rata-rata ${fmtDes.format(nilai.w / n)} pcs per pesanan` : "";
+    $("kpi-ket-rasio").textContent = "Penghasilan Akhir ÷ Total Nominal Seluruh Produk";
+    const meter = $("kpi-meter");
+    void meter.offsetWidth;
+    meter.style.width = (isFinite(nilai.rasio) ? Math.max(0, Math.min(1, nilai.rasio)) * 100 : 0) + "%";
   }
 
   // ------------------------------------------------------------------ kartu statistik
