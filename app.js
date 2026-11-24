@@ -328,7 +328,7 @@
   const KPI = [
     { id: "pa", kelas: "utama", label: "Penghasilan Akhir", ikon: IKON.naik, fmt: rp },
     { id: "v", kelas: "lebar", label: "Total Nominal Seluruh Produk", ikon: IKON.label, fmt: rp },
-    { id: "rasio", kelas: "lebar persen", label: "Total Persentase Biaya Shopee", ikon: IKON.persen,
+    { id: "rasio", kelas: "lebar persen", label: "Porsi Potongan Shopee", ikon: IKON.persen,
       fmt: (x) => (isFinite(x) ? fmtPct.format(x * 100) + "%" : "–") },
     { id: "n", label: "Jumlah pesanan", ikon: IKON.tas, fmt: (x) => fmtAngka.format(x) },
     { id: "w", label: "Jumlah pcs bersih", ikon: IKON.kotak, fmt: (x) => fmtDes.format(Math.round(x * 100) / 100) },
@@ -348,13 +348,13 @@
     const n = baris.length;
     const jum = (k) => baris.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
     const nilai = { pa: jum("pa"), v: jum("v"), n, w: jum("w") };
-    nilai.rasio = nilai.v ? nilai.pa / nilai.v : NaN;
+    nilai.rasio = nilai.v ? 1 - nilai.pa / nilai.v : NaN;  // porsi biaya Shopee dari nilai produk
     for (const k of KPI) hitungNaik($("kpi-" + k.id), nilai[k.id], k.fmt);
     $("kpi-ket-pa").textContent = n ? `Rata-rata ${rp(nilai.pa / n)} per pesanan` : "Tidak ada pesanan pada periode ini";
     $("kpi-ket-v").textContent = n ? `Rata-rata ${rp(nilai.v / n)} per pesanan` : "";
     $("kpi-ket-n").textContent = pilihan.tanpaRetur ? "Tanpa pesanan retur" : "Termasuk pesanan retur";
     $("kpi-ket-w").textContent = n ? `Rata-rata ${fmtDes.format(nilai.w / n)} pcs per pesanan` : "";
-    $("kpi-ket-rasio").textContent = "Penghasilan Akhir ÷ Total Nominal Seluruh Produk";
+    $("kpi-ket-rasio").textContent = nilai.v ? `Potongan ${rp(nilai.v - nilai.pa)} dari ${rp(nilai.v)}` : "";
     const meter = $("kpi-meter");
     void meter.offsetWidth;
     meter.style.width = (isFinite(nilai.rasio) ? Math.max(0, Math.min(1, nilai.rasio)) * 100 : 0) + "%";
