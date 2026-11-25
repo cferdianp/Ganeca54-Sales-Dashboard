@@ -60,7 +60,13 @@
 
   // ------------------------------------------------------------------ status
   // PESANAN: Shopee, NON: non-Shopee yang sudah lunas, BELUM: non-Shopee belum lunas (tampil terpisah)
+  // Kapan penjualan non-Shopee dihitung (DASAR_NON):
+  //   "kirim": saat barang dikirim, konsinyasi saat dibayar penerima titipan (pengakuan pendapatan SAK EMKM)
+  //   "lunas": pada Tanggal Lunas; "kas": tiap pembayaran pada tanggalnya, termasuk DP (basis kas)
+  // DASAR: yang benar-benar dipakai (turun ke "lunas" kalau datanya tidak lengkap).
+  const DASAR_NON = "kirim";
   let DATA = null, PESANAN = [], NON = [], BELUM = [], SEMUA = [], PRODUK = [], ADA_NON = false, SUDAH_DIBUAT = false;
+  let KAS_NON = [], DASAR = "lunas";
   const pilihan = muatPilihan();
   const grafik = {};
   const SUMBER = [["semua", "Semua"], ["shopee", "Shopee"], ["non", "Non-Shopee"]];
@@ -85,6 +91,7 @@
     if (!GERAK() || typeof nilai !== "number" || !isFinite(nilai) || tersembunyi || dari === nilai) {
       el.textContent = fmt(nilai); return;
     }
+    el.classList.remove("letup"); void el.offsetWidth; el.classList.add("letup");
     const t0 = performance.now(), lama = 900;
     const langkah = (t) => {
       const p = Math.min(1, (t - t0) / lama), e = 1 - Math.pow(1 - p, 4);
@@ -172,16 +179,31 @@
     const px = Object.fromEntries(data.kolom_produk.map((k, i) => [k, i]));
     PRODUK = data.produk.map((a) => ({ k: "s" + a[px.no], no: a[px.no], sku: a[px.sku], varian: a[px.var], beli: a[px.beli],
       kembali: a[px.kembali], sub: a[px.sub] }));
-    // penjualan non-Shopee: tanggal = Tanggal Lunas, penghasilan = PENGHASILAN AKHIR (Basis Kas)
+    // penjualan non-Shopee: penghasilan = PENGHASILAN AKHIR (Basis Kas); tanggal menurut DASAR
     NON = []; BELUM = [];
     const ns = data.non_shopee;
+    DASAR = "lunas";
     if (ns && Array.isArray(ns.pesanan)) {
       const nx = Object.fromEntries(ns.kolom.map((k, i) => [k, i]));
+      if (DASAR_NON === "kirim" && nx.kirim !== undefined && nx.o !== undefined) DASAR = "kirim";
+      if (DASAR_NON === "kas" && Array.isArray(ns.bayar) && Array.isArray(ns.kolom_bayar)) DASAR = "kas";
       for (const a of ns.pesanan) {
-        const o = { src: "n", k: "n" + a[nx.no], no: a[nx.no], p: a[nx.p], bayar1: a[nx.bayar1],
+        const o = { src: "n", k: "n" + a[nx.no], no: a[nx.no], p: null, lunas: a[nx.p], bayar1: a[nx.bayar1],
           saluran: a[nx.saluran] || "Lainnya", cara: a[nx.cara], v: a[nx.v], w: a[nx.w], pa: a[nx.pa],
-          selisih: a[nx.selisih], status: a[nx.status], retur: !!a[nx.retur] };
-        (typeof o.p === "number" && o.status !== "Belum Lunas" ? NON : BELUM).push(o);
+          selisih: a[nx.selisih], status: a[nx.status], retur: !!a[nx.retur], piutang: 0 };
+        const belumLunas = o.status === "Belum Lunas";
+        if (DASAR === "kirim") {
+          o.kirim = a[nx.kirim]; o.konsinyasi = /consign|konsinyasi/i.test(o.cara || "");
+          // konsinyasi: barang masih milik Eca sampai penerima titipan membayar
+          const t = o.konsinyasi ? (belumLunas ? null : o.lunas) : o.kirim;
+          if (typeof t !== "number") { BELUM.push(o); continue; }
+          o.p = t;
+          // sudah dikirim tetapi belum lunas: dihitung penuh sebesar tagihan, sisanya piutang
+          const tagihan = a[nx.o];
+          if (belumLunas && typeof tagihan === "number") { o.piutang = Math.max(0, tagihan - (o.pa || 0)); o.pa = tagihan; }
+          NON.push(o);
+        } else if (typeof o.lunas === "number" && !belumLunas) { o.p = o.lunas; NON.push(o); }
+        else BELUM.push(o);
       }
       const qx = Object.fromEntries(ns.kolom_produk.map((k, i) => [k, i]));
       for (const a of ns.produk) {
@@ -191,7 +213,43 @@
     }
     ADA_NON = NON.length + BELUM.length > 0;
     SEMUA = PESANAN.concat(NON);
+    siapkanKas(ns);
   }
+
+  /** Penghasilan Akhir non-Shopee per tanggal. Basis kas: tiap pembayaran pada tanggalnya (DP pesanan belum lunas
+   *  ikut), sisanya (misalnya ongkir yang dibayar Eca) pada Tanggal Lunas. Dasar lain: seluruhnya pada tanggal pesanan. */
+  function siapkanKas(ns) {
+    KAS_NON = [];
+    const per = new Map();
+    if (DASAR === "kas") {
+      const bx = Object.fromEntries(ns.kolom_bayar.map((k, i) => [k, i]));
+      for (const a of ns.bayar) {
+        const t = a[bx.t], v = a[bx.nominal];
+        if (typeof t !== "number" || typeof v !== "number") continue;
+        if (!per.has(a[bx.no])) per.set(a[bx.no], []);
+        per.get(a[bx.no]).push({ t, v });
+      }
+    }
+    const tambah = (o, belum, t, pa) => KAS_NON.push({ src: "n", k: o.k, no: o.no, saluran: o.saluran, retur: o.retur, belum, t, pa });
+    for (const o of NON.concat(DASAR === "kas" ? BELUM : [])) {
+      if (typeof o.pa !== "number") continue;
+      const belum = !NON.includes(o), bayar = per.get(o.no) || [];
+      let sisa = o.pa;
+      for (const b of bayar) { tambah(o, belum, b.t, b.v); sisa -= b.v; }
+      const tSisa = belum ? (bayar.length ? Math.max(...bayar.map((b) => b.t)) : null) : o.p;
+      if (Math.abs(sisa) >= 0.005 && typeof tSisa === "number") tambah(o, belum, tSisa, sisa);
+    }
+  }
+
+  /** Penghasilan Akhir pada saringan sekarang: Shopee per pesanan (Waktu Selesai), non-Shopee per pembayaran. */
+  function kas(baris) {
+    const [a, b] = rentangPeriode();
+    const hasil = baris.filter((x) => x.src === "s" && typeof x.pa === "number")
+      .map((x) => ({ src: "s", saluran: x.saluran, belum: false, t: x.p, pa: x.pa }));
+    if (sumber() === "shopee") return hasil;
+    return hasil.concat(KAS_NON.filter((x) => x.t >= a && x.t < b && !(pilihan.tanpaRetur && x.retur)));
+  }
+  const jumlahPA = (uang, f) => uang.reduce((a, x) => a + (!f || f(x) ? x.pa : 0), 0);
 
   const cocokSumber = (x) => { const s = sumber(); return s === "semua" || (s === "shopee") === (x.src === "s"); };
   function namaPesanan(x) {
@@ -245,7 +303,13 @@
     const cs = getComputedStyle(document.documentElement);
     const g = (v) => cs.getPropertyValue(v).trim();
     return { seri1: g("--seri-1"), seri2: g("--seri-2"), garis: g("--garis"), sumbu: g("--sumbu"),
-      tinta: g("--tinta"), tinta2: g("--tinta-2"), redup: g("--tinta-redup"), permukaan: g("--permukaan") };
+      tinta: g("--tinta"), tinta2: g("--tinta-2"), redup: g("--tinta-redup"), permukaan: g("--permukaan"),
+      grafik: g("--grafik"), lokasi1: g("--lokasi-1"), lokasi2: g("--lokasi-2"), heroTinta: g("--hero-tinta") || "#ffffff" };
+  }
+  /** "#rrggbb" -> "rgba(r,g,b,a)" */
+  function rgba(hex, a) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex).trim());
+    return m ? `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})` : `rgba(255,255,255,${a})`;
   }
 
   function animasiBatang() {
@@ -258,7 +322,7 @@
   }
 
   function grafikBatang(id, label, nilai, opsi) {
-    const W = warna(), isi = sumber() === "non" ? W.seri2 : W.seri1;
+    const W = warna(), isi = W.grafik;
     const options = {
       responsive: true, maintainAspectRatio: false, animation: animasiBatang(),
       plugins: { legend: { display: false }, tooltip: {
@@ -341,24 +405,28 @@
     const cv = $("garis-mini");
     if (!cv) return;
     if (!nilai.length) { hapusGrafik("garis-mini"); return; }
+    const tinta = warna().heroTinta;
     const isi = (ctx) => {
       const { chart } = ctx, area = chart.chartArea;
-      if (!area) return "rgba(255,255,255,0.15)";
+      if (!area) return rgba(tinta, 0.15);
       const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-      g.addColorStop(0, "rgba(255,255,255,0.38)"); g.addColorStop(1, "rgba(255,255,255,0)");
+      g.addColorStop(0, rgba(tinta, /^#?f/i.test(tinta) ? 0.38 : 0.2)); g.addColorStop(1, rgba(tinta, 0));
       return g;
     };
     const titik = (c) => (c.dataIndex === nilai.length - 1 ? 3.5 : 0);
+    if (GERAK()) { cv.classList.remove("gambar"); void cv.offsetWidth; cv.classList.add("gambar"); }
     const ch = grafik["garis-mini"];
     if (ch) {
-      ch.data.labels = label; ch.data.datasets[0].data = nilai; ch.data.datasets[0].pointRadius = titik;
+      Object.assign(ch.data.datasets[0], { data: nilai, pointRadius: titik, backgroundColor: isi,
+        borderColor: rgba(tinta, 0.95), pointBackgroundColor: tinta });
+      ch.data.labels = label;
       ch.options.animation = GERAK() ? { duration: 900, easing: "easeOutQuart" } : false;
       ch.update(); return;
     }
     grafik["garis-mini"] = new Chart(cv, {
       type: "line",
-      data: { labels: label, datasets: [{ data: nilai, borderColor: "rgba(255,255,255,0.95)", borderWidth: 2,
-        tension: 0.35, fill: true, backgroundColor: isi, pointRadius: titik, pointBackgroundColor: "#fff",
+      data: { labels: label, datasets: [{ data: nilai, borderColor: rgba(tinta, 0.95), borderWidth: 2,
+        tension: 0.35, fill: true, backgroundColor: isi, pointRadius: titik, pointBackgroundColor: tinta,
         pointBorderWidth: 0 }] },
       options: {
         responsive: true, maintainAspectRatio: false, events: [],
@@ -415,6 +483,11 @@
     { id: "porsi", kelas: "lebar porsi", label: "Porsi Penghasilan Shopee dan Non-Shopee", ikon: IKON.pai },
   ];
 
+  // bintang kecil berkelip di kartu utama (posisi dan jeda tetap supaya tidak "melompat")
+  const BINTANG = [[78, 12, 0], [90, 34, 1.1], [64, 22, 2.3], [84, 58, 0.6], [56, 8, 1.8], [94, 76, 2.7]]
+    .map(([x, y, d], i) => `<span class="bintang" aria-hidden="true" style="left:${x}%;top:${y}%;animation-delay:${d}s;width:${8 + (i % 3) * 3}px;height:${8 + (i % 3) * 3}px">`
+      + '<svg viewBox="0 0 20 20"><path d="M10 0l2.4 7.6L20 10l-7.6 2.4L10 20l-2.4-7.6L0 10l7.6-2.4z"/></svg></span>').join("");
+
   function buatKPI() {
     $("kpi").innerHTML = KPI.map((k) => `<div class="kartu ${k.kelas || ""}" id="kartu-${k.id}">
       <div class="baris-label"><span class="ikon">${svg(k.ikon)}</span><span class="label">${k.label}${k.id === "rasio"
@@ -425,20 +498,38 @@
         : `<div class="nilai" id="kpi-${k.id}" data-hitung></div>`}
       ${k.id === "rasio" ? '<div class="meter" aria-hidden="true"><span class="isi" id="kpi-meter"></span></div>' : ""}
       <div class="ket" id="kpi-ket-${k.id}"></div>
-      ${k.kelas === "utama" ? '<div class="garis-mini"><canvas id="garis-mini" aria-hidden="true"></canvas></div>' : ""}</div>`).join("");
-    [...$("kpi").children].forEach((el, i) => daftarkanMuncul(el, i * 70));
+      ${k.kelas === "utama" ? '<div class="garis-mini"><canvas id="garis-mini" aria-hidden="true"></canvas></div>' + BINTANG : ""}</div>`).join("");
+    [...$("kpi").children].forEach((el, i) => { daftarkanMuncul(el, i * 70); pasangMiring(el); });
+  }
+
+  /** Kartu miring sedikit mengikuti kursor (hanya mouse). */
+  function pasangMiring(el) {
+    if (!GERAK() || !window.matchMedia || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    el.classList.add("miring");
+    el.addEventListener("pointermove", (e) => {
+      const r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      el.style.setProperty("--ry", ((x - 0.5) * 7).toFixed(2) + "deg");
+      el.style.setProperty("--rx", ((0.5 - y) * 7).toFixed(2) + "deg");
+      el.style.setProperty("--gx", (x * 100).toFixed(1) + "%");
+      el.style.setProperty("--gy", (y * 100).toFixed(1) + "%");
+    });
+    el.addEventListener("pointerleave", () => { el.style.setProperty("--rx", "0deg"); el.style.setProperty("--ry", "0deg"); });
   }
 
   function gambarKPI(baris) {
-    const s = sumber(), n = baris.length;
+    const s = sumber(), n = baris.length, uang = kas(baris);
     const jum = (rows, k) => rows.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
     const sh = baris.filter((x) => x.src === "s"), nn = baris.filter((x) => x.src === "n");
-    const nilai = { pa: jum(baris, "pa"), v: jum(baris, "v"), n, w: jum(baris, "w") };
+    const nilai = { pa: jumlahPA(uang), v: jum(baris, "v"), n, w: jum(baris, "w") };
+    const dp = jumlahPA(uang, (x) => x.belum), piutang = baris.reduce((a, x) => a + (x.piutang || 0), 0);
+    const catatan = dp ? `Termasuk DP belum lunas ${rp(dp)}` : piutang ? `Termasuk piutang ${rp(piutang)}` : "";
     // porsi biaya Shopee dari nilai produk: selalu dari pesanan Shopee saja
     const vS = jum(sh, "v"), paS = jum(sh, "pa");
     nilai.rasio = vS ? 1 - paS / vS : NaN;
     for (const k of KPI) if (k.fmt) hitungNaik($("kpi-" + k.id), nilai[k.id], k.fmt);
-    $("kpi-ket-pa").textContent = n ? `Rata-rata ${rp(nilai.pa / n)} per pesanan` : "Tidak ada pesanan pada periode ini";
+    const rata = n ? `ata-rata ${rp(jum(baris, "pa") / n)} per pesanan` : "";
+    $("kpi-ket-pa").textContent = catatan ? `${catatan}${rata ? " · r" + rata : ""}`
+      : (rata ? "R" + rata : "Tidak ada pesanan pada periode ini");
     $("kpi-ket-v").textContent = n ? `Rata-rata ${rp(nilai.v / n)} per pesanan` : "";
     $("kpi-ket-n").textContent = s === "semua" ? `${fmtAngka.format(sh.length)} Shopee · ${fmtAngka.format(nn.length)} non-Shopee`
       : (pilihan.tanpaRetur ? "Tanpa pesanan retur" : "Termasuk pesanan retur");
@@ -452,7 +543,7 @@
     $("lencana-rasio").hidden = s !== "semua";
     $("kartu-porsi").hidden = s !== "semua";
     $("kpi").style.setProperty("--baris", s === "semua" ? 4 : s === "shopee" ? 3 : 2);
-    if (s === "semua") gambarPorsi(paS, jum(nn, "pa"));
+    if (s === "semua") gambarPorsi(paS, jumlahPA(uang, (x) => x.src === "n"));
   }
 
   function gambarPorsi(paS, paN) {
@@ -470,22 +561,44 @@
     $("kpi-ket-porsi").textContent = tot ? `Dari Penghasilan Akhir ${rp(tot)} pada periode ini` : "Tidak ada pesanan pada periode ini";
   }
 
-  // ------------------------------------------------------------------ belum lunas (non-Shopee)
+  // ------------------------------------------------------------------ belum dihitung / belum lunas (non-Shopee)
   function gambarBelum() {
     const el = $("belum");
-    const tampil = BELUM.length > 0 && sumber() !== "shopee";
+    const piutang = NON.filter((x) => x.piutang > 0);
+    const tampil = BELUM.length + piutang.length > 0 && sumber() !== "shopee";
     el.hidden = !tampil;
     if (!tampil) return;
     const angka = (v) => (typeof v === "number" ? v : 0);
+    const sisaDari = (x) => Math.max(0, angka(x.selisih));
     const diterima = BELUM.reduce((a, x) => a + angka(x.pa), 0);
-    const sisa = BELUM.reduce((a, x) => a + Math.max(0, angka(x.selisih)), 0);
-    el.innerHTML = `<div class="baris-label"><span class="ikon">${svg(IKON.jam)}</span><div>
-        <h3>${BELUM.length} pesanan non-Shopee belum lunas</h3>
-        <p class="ket">Belum ikut dihitung di dashboard sampai lunas. Sudah diterima ${rp(diterima)}, sisa tagihan ${rp(sisa)}.</p></div></div>
-      <ul class="daftar-belum">${BELUM.map((x) => `<li>
+    const sisa = BELUM.reduce((a, x) => a + sisaDari(x), 0);
+    const totPiutang = piutang.reduce((a, x) => a + x.piutang, 0);
+    let judul, ket;
+    if (DASAR === "kirim") {
+      const semuaKirim = BELUM.every((x) => !x.konsinyasi);
+      judul = [BELUM.length ? `${BELUM.length} pesanan non-Shopee belum ${semuaKirim ? "dikirim" : "dihitung"}` : "",
+        piutang.length ? `${piutang.length} sudah dikirim, belum lunas` : ""].filter(Boolean).join(" · ");
+      ket = (BELUM.length ? `Penjualan dihitung saat barang dikirim (konsinyasi: saat dibayar), sesuai pengakuan pendapatan SAK EMKM. `
+        + `Uang yang sudah diterima dari pesanan ini (${rp(diterima)}) masih berupa uang muka pelanggan${sisa ? `, sisa tagihan ${rp(sisa)}` : ""}. ` : "")
+        + (piutang.length ? `Pesanan yang sudah dikirim dihitung penuh; piutangnya ${rp(totPiutang)}.` : "");
+    } else if (DASAR === "kas") {
+      judul = `${BELUM.length} pesanan non-Shopee belum lunas`;
+      ket = `Uang yang sudah diterima (${rp(diterima)}) sudah masuk Penghasilan Akhir pada tanggal pembayarannya. Jumlah pesanan, TNSP, dan pcs dihitung setelah lunas. Sisa tagihan ${rp(sisa)}.`;
+    } else {
+      judul = `${BELUM.length} pesanan non-Shopee belum lunas`;
+      ket = `Belum ikut dihitung di dashboard sampai lunas. Sudah diterima ${rp(diterima)}, sisa tagihan ${rp(sisa)}.`;
+    }
+    const baris = (x, rinci) => `<li>
         <span class="no">#${esc(x.no)}</span>
         <span class="isi-belum"><span>${esc(x.saluran)}${x.cara ? " · " + esc(x.cara) : ""}${typeof x.bayar1 === "number" ? " · bayar pertama " + tglTeks(x.bayar1) : ""}</span>
-        <span class="rp">Diterima ${rp(angka(x.pa))} · sisa ${rp(Math.max(0, angka(x.selisih)))} dari ${rp(angka(x.v))}</span></span></li>`).join("")}</ul>`;
+        <span class="rp">${rinci}</span></span></li>`;
+    el.innerHTML = `<div class="baris-label"><span class="ikon">${svg(IKON.jam)}</span><div>
+        <h3>${judul}</h3><p class="ket">${ket.trim()}</p></div></div>
+      <ul class="daftar-belum">${BELUM.map((x) => baris(x, sisaDari(x)
+          ? `Diterima ${rp(angka(x.pa))} · sisa ${rp(sisaDari(x))} dari ${rp(angka(x.v))}`
+          : x.konsinyasi ? "Konsinyasi · menunggu dibayar"
+          : `Lunas ${rp(angka(x.pa))}${DASAR === "kirim" ? " · menunggu dikirim" : ""}`)).join("")}${
+        piutang.map((x) => baris(x, `Dikirim ${tglTeks(x.p)} · piutang ${rp(x.piutang)} dari ${rp(angka(x.pa))}`)).join("")}</ul>`;
   }
 
   // ------------------------------------------------------------------ kartu statistik
@@ -548,16 +661,24 @@
       hapusGrafik("hist-" + m.id);
       return;
     }
-    hitungNaik($("nilai-" + m.id), st[pilih], fmt.teks);
-    const ket = { min: namaPesanan(st.minX), maks: namaPesanan(st.maksX), median: `Nilai tengah dari ${st.n} pesanan`,
+    let ket = { min: namaPesanan(st.minX), maks: namaPesanan(st.maksX), median: `Nilai tengah dari ${st.n} pesanan`,
       rata: `Rata-rata dari ${st.n} pesanan`, total: `Jumlah dari ${st.n} pesanan` }[pilih];
+    let angka = st[pilih];
+    if (m.id === "pa" && pilih === "total") {
+      // sama dengan kartu ringkasan: non-Shopee per tanggal uang diterima
+      const uang = kas(baris), dp = jumlahPA(uang, (x) => x.belum);
+      angka = jumlahPA(uang);
+      if (dp) ket = `Jumlah dari ${st.n} pesanan, termasuk DP belum lunas ${rp(dp)}`;
+      else if (Math.abs(angka - st.total) >= 0.5) ket = `Jumlah per tanggal uang diterima (${st.n} pesanan)`;
+    }
+    hitungNaik($("nilai-" + m.id), angka, fmt.teks);
     $("ket-" + m.id).textContent = ket;
     histogram("hist-" + m.id, st, fmt);
   }
 
   // ------------------------------------------------------------------ tren
   function gambarTren(baris) {
-    const kosong = !baris.length;
+    const uang = kas(baris), kosong = !baris.length && !uang.length;
     document.querySelectorAll(".kanvas.tren").forEach((el) => el.classList.toggle("kosong", kosong));
     if (kosong) {
       ["tren-pa", "tren-n"].forEach(hapusGrafik);
@@ -565,7 +686,7 @@
       $("tren-satuan-1").textContent = $("tren-satuan-2").textContent = "";
       return;
     }
-    const ps = baris.map((x) => x.p);
+    const ps = baris.map((x) => x.p).concat(uang.map((x) => x.t));
     // sumbu waktu mengikuti periode yang dipilih (hari tanpa pesanan tetap tampil sebagai 0)
     const [a, b] = rentangPeriode();
     const [ty, tm, td] = hariIniWIB();
@@ -591,8 +712,13 @@
     const pa = new Array(label.length).fill(0);
     for (const x of baris) {
       const k = idx[kunci(x.p)], j = daftar.findIndex((d) => d[0] === x.src);
-      if (j < 0) continue;
-      seriPA[j].data[k] += x.pa || 0; seriN[j].data[k] += 1; pa[k] += x.pa || 0;
+      if (j >= 0) seriN[j].data[k] += 1;
+    }
+    // Penghasilan Akhir: non-Shopee pada tanggal uang diterima
+    for (const x of uang) {
+      const k = idx[kunci(x.t)], j = daftar.findIndex((d) => d[0] === x.src);
+      if (j < 0 || k === undefined) continue;
+      seriPA[j].data[k] += x.pa; pa[k] += x.pa;
     }
     const tampil = label.map((k, ix) => { const p = k.split("-").map(Number);
       if (harian) return p[2] + " " + BULAN[p[1] - 1];
@@ -627,7 +753,7 @@
   }
 
   function gambarLokasi(baris) {
-    const W = warna(), warnaSeg = [W.seri1, W.seri2];
+    const W = warna(), warnaSeg = [W.lokasi1, W.lokasi2];
     [...$("lokasi").children].forEach((el, i) => {
       const b = LOKASI[i];
       const hit = b.nilai.map(([v]) => baris.filter((x) => x[b.kunci] === v).length);
@@ -746,12 +872,13 @@
     document.querySelectorAll("#ukuran-saluran button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.u === u)));
     pasangIndikator($("ukuran-saluran"));
     const peta = new Map();
-    for (const x of baris) {
+    const ambil = (x) => {
       const kunci = x.src + "\u0000" + x.saluran;
       if (!peta.has(kunci)) peta.set(kunci, { nama: x.saluran, src: x.src, pa: 0, n: 0, w: 0 });
-      const a = peta.get(kunci);
-      a.pa += typeof x.pa === "number" ? x.pa : 0; a.n += 1; a.w += typeof x.w === "number" ? x.w : 0;
-    }
+      return peta.get(kunci);
+    };
+    for (const x of baris) { const a = ambil(x); a.n += 1; a.w += typeof x.w === "number" ? x.w : 0; }
+    for (const x of kas(baris)) ambil(x).pa += x.pa;
     const items = [...peta.values()].sort((a, b) => b[u] - a[u] || a.nama.localeCompare(b.nama));
     const el = $("daftar-saluran");
     if (!items.length) { el.innerHTML = '<p class="sub">Tidak ada pesanan pada periode ini.</p>'; return; }
@@ -764,7 +891,7 @@
       b.className = "baris-batang"; b.setAttribute("role", "listitem");
       b.innerHTML = `<span class="nama">${esc(it.nama)}${it.src === "n" && s === "semua" ? ' <span class="ket-sumber">non-Shopee</span>' : ""}</span>
         <span class="nilai">${teksSaluran(it[u])}${total > 0 ? ` <span class="porsi">${pct(Math.max(0, it[u]) / total)}</span>` : ""}</span>
-        <span class="jalur"><span class="isi${it.src === "n" ? " non" : ""}"></span></span>`;
+        <span class="jalur"><span class="isi ${it.src === "n" ? "non" : "shopee"}"></span></span>`;
       const bar = b.querySelector(".isi");
       bar.style.setProperty("--tunda", Math.min(i * 45, 500) + "ms");
       isi.push([bar, Math.max(0, it[u]) / maks * 100]);
@@ -783,7 +910,11 @@
       for (const [k, nama] of SUMBER) {
         const b = document.createElement("button");
         b.type = "button"; b.textContent = nama; b.dataset.s = k; b.setAttribute("role", "radio");
-        b.addEventListener("click", () => { pilihan.sumber = k; simpanPilihan(); gambarSemua(); });
+        b.addEventListener("click", (e) => {
+          if (sumber() === k) return;
+          pilihan.sumber = k; simpanPilihan();
+          gantiTema(b, e, gambarSemua);
+        });
         $("sumber").appendChild(b);
       }
       $("sumber").hidden = false;
@@ -820,14 +951,33 @@
         .observe($("penanda-saringan"));
     }
     buatKPI(); buatLokasi(); buatKartu();
+    document.querySelectorAll("#aplikasi h2").forEach((h) => daftarkanMuncul(h, 0));
     document.querySelectorAll(".grup > .grid > .kartu, .grup > .kartu").forEach((el, i) => {
       el.classList.add("angkat");
       if (!el.classList.contains("muncul")) daftarkanMuncul(el, (i % 2) * 80);
     });
   }
 
+  /** Ganti tema dengan lingkaran warna baru yang melebar dari tombol (View Transitions); tanpa dukungan: langsung. */
+  function gantiTema(tombol, e, ubah) {
+    if (!GERAK() || !document.startViewTransition) { ubah(); return; }
+    const r = tombol.getBoundingClientRect();
+    const x = e && e.clientX ? e.clientX : r.left + r.width / 2, y = e && e.clientY ? e.clientY : r.top + r.height / 2;
+    const jauh = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    const akar = document.documentElement.style;
+    akar.setProperty("--vt-x", x + "px"); akar.setProperty("--vt-y", y + "px"); akar.setProperty("--vt-r", Math.ceil(jauh) + "px");
+    // warna langsung ke tema baru di dalam lingkaran (transisi warna biasa dimatikan sementara)
+    const html = document.documentElement;
+    html.classList.add("vt");
+    try {
+      const vt = document.startViewTransition(ubah);
+      vt.finished.finally(() => html.classList.remove("vt"));
+    } catch (err) { html.classList.remove("vt"); ubah(); }
+  }
+
   function gambarSemua() {
     const s = sumber();
+    document.documentElement.dataset.sumber = s;
     document.querySelectorAll("#sumber button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.s === s)));
     pasangIndikator($("sumber"));
     document.querySelectorAll("#periode button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === pilihan.periode)));
@@ -838,8 +988,9 @@
     $("label-retur").textContent = `Kecualikan retur (${nRetur} pesanan)`;
     const baris = tersaring();
     const [, , teks] = rentangPeriode();
-    const dasar = { semua: "Waktu Selesai (Shopee) dan Tanggal Lunas (non-Shopee)", shopee: "Waktu Selesai (Dana Lepas)",
-      non: "Tanggal Lunas" }[s];
+    const tglNon = DASAR === "kirim" ? "Tanggal Pengiriman" : "Tanggal Lunas";
+    const dasar = { semua: `Waktu Selesai (Shopee) dan ${tglNon} (non-Shopee)`, shopee: "Waktu Selesai (Dana Lepas)",
+      non: tglNon }[s];
     const namaSumber = { semua: "", shopee: ADA_NON ? " Shopee" : "", non: " non-Shopee" }[s];
     $("ringkas-periode").textContent = `${teks} · ${fmtAngka.format(baris.length)} pesanan${namaSumber} menurut ${dasar}`;
     // bagian yang datanya hanya ada di Shopee: disembunyikan saat hanya non-Shopee, berlabel saat digabung
@@ -873,10 +1024,41 @@
       : `${fmtAngka.format(PESANAN.length)} pesanan`;
     $("info-data").innerHTML = `${jumlah} · ${ADA_NON ? "transaksi" : "dana lepas"} terakhir ${ps.length ? tglTeks(Math.max(...ps)) : "-"}` +
       (data.dibuat ? `<br><span class="denyut" aria-hidden="true"></span>Diperbarui ${esc(dibuatTeks(data.dibuat))}` : "");
+    $("ket-dasar").textContent = {
+      kirim: "Periode memakai Waktu Selesai (Dana Lepas) untuk Shopee dan Tanggal Pengiriman untuk non-Shopee (konsinyasi: Tanggal Lunas), sesuai pengakuan pendapatan SAK EMKM. Uang yang diterima sebelum barang dikirim belum dihitung.",
+      lunas: "Periode memakai Waktu Selesai (Dana Lepas) untuk Shopee dan Tanggal Lunas untuk non-Shopee.",
+      kas: "Periode memakai Waktu Selesai (Dana Lepas) untuk Shopee dan Tanggal Lunas untuk non-Shopee. Penghasilan Akhir non-Shopee dihitung pada tanggal uang diterima (basis kas), termasuk DP pesanan yang belum lunas.",
+    }[DASAR];
+    if (!ADA_NON) $("ket-dasar").textContent = "Periode memakai Waktu Selesai (Dana Lepas).";
     tampil("aplikasi");
     if (GERAK()) $("aplikasi").classList.add("tiba");
     if (!SUDAH_DIBUAT) { SUDAH_DIBUAT = true; buatSaringan(); }
     gambarSemua();
+    let sudah = false;
+    try { sudah = sessionStorage.getItem("ganeca-konfeti") === "1"; sessionStorage.setItem("ganeca-konfeti", "1"); } catch (e) { /* abaikan */ }
+    if (!sudah) setTimeout(konfeti, 450);
+  }
+
+  /** Kelopak warna logo Ganeca memancar dari logo lalu jatuh. */
+  function konfeti() {
+    const logo = document.querySelector(".merek");
+    if (!GERAK() || !logo || !logo.animate) return;
+    const r = logo.getBoundingClientRect(), x0 = r.left + r.width / 2, y0 = r.top + r.height / 2;
+    const warnaK = ["#056839", "#fdce0a", "#ee4d2d", "#1d3461", "#2b8fd0", "#e4232c", "#fdce0a", "#056839"];
+    for (let i = 0; i < 34; i++) {
+      const k = document.createElement("span");
+      k.className = "kelopak"; k.style.left = x0 + "px"; k.style.top = y0 + "px";
+      k.style.background = warnaK[i % warnaK.length];
+      document.body.appendChild(k);
+      const sudut = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.9, cepat = 150 + Math.random() * 260;
+      const dx = Math.cos(sudut) * cepat * 1.2, dy = Math.sin(sudut) * cepat * 0.5, putar = (Math.random() - 0.5) * 900;
+      const anim = k.animate([
+        { transform: "translate(-50%,-50%) scale(.2) rotate(0deg)", opacity: 1 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(1) rotate(${putar / 2}deg)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(calc(-50% + ${dx * 1.3}px), calc(-50% + ${dy + 340}px)) scale(.8) rotate(${putar}deg)`, opacity: 0 },
+      ], { duration: 1500 + Math.random() * 700, easing: "cubic-bezier(.2,.7,.4,1)" });
+      anim.onfinish = () => k.remove();
+    }
   }
 
   async function ambilAmplop() {
@@ -954,6 +1136,15 @@
   window.addEventListener("resize", () => {
     clearTimeout(jedaUkuran);
     jedaUkuran = setTimeout(() => { if (DATA) document.querySelectorAll(".trek").forEach(pasangIndikator); }, 120);
+  });
+  // riak saat tombol pilihan ditekan
+  document.addEventListener("pointerdown", (e) => {
+    const b = e.target.closest && e.target.closest(".trek button");
+    if (!b || !GERAK()) return;
+    const r = b.getBoundingClientRect(), s = document.createElement("span");
+    s.className = "riak"; s.style.left = (e.clientX - r.left) + "px"; s.style.top = (e.clientY - r.top) + "px";
+    b.appendChild(s);
+    setTimeout(() => s.remove(), 650);
   });
   init();
 })();
