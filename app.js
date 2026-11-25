@@ -1,4 +1,4 @@
-/* Ganeca - Sales Dashboard Shopee */
+/* Ganeca - Sales Dashboard (Shopee dan non-Shopee) */
 (function () {
   "use strict";
 
@@ -59,12 +59,16 @@
   function hariIniWIB() { const d = new Date(Date.now() + 7 * 3600000); return [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()]; }
 
   // ------------------------------------------------------------------ status
-  let DATA = null, PESANAN = [], PRODUK = [], SUDAH_DIBUAT = false;
+  // PESANAN: Shopee, NON: non-Shopee yang sudah lunas, BELUM: non-Shopee belum lunas (tampil terpisah)
+  let DATA = null, PESANAN = [], NON = [], BELUM = [], SEMUA = [], PRODUK = [], ADA_NON = false, SUDAH_DIBUAT = false;
   const pilihan = muatPilihan();
   const grafik = {};
+  const SUMBER = [["semua", "Semua"], ["shopee", "Shopee"], ["non", "Non-Shopee"]];
+  /** Sumber yang berlaku: tanpa data non-Shopee, selalu Shopee. */
+  const sumber = () => (ADA_NON && SUMBER.some(([k]) => k === pilihan.sumber) ? pilihan.sumber : (ADA_NON ? "semua" : "shopee"));
 
   function muatPilihan() {
-    const dasar = { periode: "semua", tanpaRetur: false, stat: {}, ukuran: "pcs", sku: null };
+    const dasar = { periode: "semua", tanpaRetur: false, stat: {}, ukuran: "pcs", sku: null, sumber: "semua", ukuranSaluran: "pa" };
     try { return Object.assign(dasar, JSON.parse(localStorage.getItem(PILIHAN_SIMPAN) || "{}")); }
     catch (e) { return dasar; }
   }
@@ -158,6 +162,7 @@
       no: a[ix.no], p: a[ix.p], m: a[ix.m], o: a[ix.o], i: a[ix.i], j: a[ix.j],
       q: a[ix.q], r: a[ix.r], s: a[ix.s], v: a[ix.v], w: a[ix.w], pa: a[ix.pa], av: a[ix.av],
       ax: a[ix.ax], ay: a[ix.ay], bk: a[ix.bk], retur: !!a[ix.retur], t: null, u: null,
+      src: "s", k: "s" + a[ix.no], saluran: "Shopee",
     }));
     // Selisih antar waktu: dihitung ulang menurut urutan waktu yang sebenarnya
     const urutM = PESANAN.filter((x) => typeof x.m === "number").sort((a, b) => a.m - b.m);
@@ -165,8 +170,33 @@
     const urutO = PESANAN.filter((x) => typeof x.o === "number").sort((a, b) => a.o - b.o);
     for (let k = 1; k < urutO.length; k++) urutO[k].u = urutO[k].o - urutO[k - 1].o;
     const px = Object.fromEntries(data.kolom_produk.map((k, i) => [k, i]));
-    PRODUK = data.produk.map((a) => ({ no: a[px.no], sku: a[px.sku], varian: a[px.var], beli: a[px.beli],
+    PRODUK = data.produk.map((a) => ({ k: "s" + a[px.no], no: a[px.no], sku: a[px.sku], varian: a[px.var], beli: a[px.beli],
       kembali: a[px.kembali], sub: a[px.sub] }));
+    // penjualan non-Shopee: tanggal = Tanggal Lunas, penghasilan = PENGHASILAN AKHIR (Basis Kas)
+    NON = []; BELUM = [];
+    const ns = data.non_shopee;
+    if (ns && Array.isArray(ns.pesanan)) {
+      const nx = Object.fromEntries(ns.kolom.map((k, i) => [k, i]));
+      for (const a of ns.pesanan) {
+        const o = { src: "n", k: "n" + a[nx.no], no: a[nx.no], p: a[nx.p], bayar1: a[nx.bayar1],
+          saluran: a[nx.saluran] || "Lainnya", cara: a[nx.cara], v: a[nx.v], w: a[nx.w], pa: a[nx.pa],
+          selisih: a[nx.selisih], status: a[nx.status], retur: !!a[nx.retur] };
+        (typeof o.p === "number" && o.status !== "Belum Lunas" ? NON : BELUM).push(o);
+      }
+      const qx = Object.fromEntries(ns.kolom_produk.map((k, i) => [k, i]));
+      for (const a of ns.produk) {
+        PRODUK.push({ k: "n" + a[qx.no], no: a[qx.no], sku: a[qx.sku], varian: a[qx.var], beli: a[qx.beli],
+          kembali: a[qx.kembali], sub: a[qx.sub] });
+      }
+    }
+    ADA_NON = NON.length + BELUM.length > 0;
+    SEMUA = PESANAN.concat(NON);
+  }
+
+  const cocokSumber = (x) => { const s = sumber(); return s === "semua" || (s === "shopee") === (x.src === "s"); };
+  function namaPesanan(x) {
+    if (x.src === "n") return `Pesanan non-Shopee ke-${x.no}`;
+    return ADA_NON ? `Pesanan Shopee ke-${x.no}` : `Pesanan ke-${x.no}`;
   }
 
   function rentangPeriode() {
@@ -192,7 +222,7 @@
 
   function tersaring() {
     const [a, b] = rentangPeriode();
-    return PESANAN.filter((x) => typeof x.p === "number" && x.p >= a && x.p < b && !(pilihan.tanpaRetur && x.retur));
+    return SEMUA.filter((x) => cocokSumber(x) && typeof x.p === "number" && x.p >= a && x.p < b && !(pilihan.tanpaRetur && x.retur));
   }
 
   function statistik(baris, kunci) {
@@ -207,7 +237,7 @@
     }
     const n = urut.length, h = Math.floor(n / 2);
     const median = n % 2 ? urut[h] : (urut[h - 1] + urut[h]) / 2;
-    return { n, min: min[kunci], minNo: min.no, maks: maks[kunci], maksNo: maks.no, median, rata: total / n, total, urut };
+    return { n, min: min[kunci], minX: min, maks: maks[kunci], maksX: maks, median, rata: total / n, total, urut };
   }
 
   // ------------------------------------------------------------------ grafik
@@ -228,7 +258,7 @@
   }
 
   function grafikBatang(id, label, nilai, opsi) {
-    const W = warna();
+    const W = warna(), isi = sumber() === "non" ? W.seri2 : W.seri1;
     const options = {
       responsive: true, maintainAspectRatio: false, animation: animasiBatang(),
       plugins: { legend: { display: false }, tooltip: {
@@ -244,20 +274,68 @@
     const ch = grafik[id];
     if (ch) {
       ch.data.labels = label;
-      Object.assign(ch.data.datasets[0], { data: nilai, backgroundColor: W.seri1, hoverBackgroundColor: W.seri1 });
+      Object.assign(ch.data.datasets[0], { data: nilai, backgroundColor: isi, hoverBackgroundColor: isi });
       ch.options = options;
       ch.update();
       return;
     }
     grafik[id] = new Chart($(id), {
       type: "bar",
-      data: { labels: label, datasets: [{ data: nilai, backgroundColor: W.seri1, hoverBackgroundColor: W.seri1,
+      data: { labels: label, datasets: [{ data: nilai, backgroundColor: isi, hoverBackgroundColor: isi,
         borderRadius: 4, borderSkipped: "start", maxBarThickness: 24, categoryPercentage: 0.9, barPercentage: 0.92 }] },
       options,
     });
   }
 
   function hapusGrafik(id) { if (grafik[id]) { grafik[id].destroy(); delete grafik[id]; } }
+
+  /** Batang per periode; dua seri (Shopee + non-Shopee) ditumpuk, dengan celah 2px di antaranya. */
+  function grafikTren(id, label, seri, opsi) {
+    const W = warna(), banyak = seri.length > 1;
+    if (grafik[id] && grafik[id].data.datasets.length !== seri.length) hapusGrafik(id);
+    const atas = (i) => banyak && seri[1].data[i] > 0;
+    const datasets = seri.map((s, k) => ({
+      label: s.nama, data: s.data, backgroundColor: s.warna, hoverBackgroundColor: s.warna,
+      borderSkipped: "start", maxBarThickness: 24, categoryPercentage: 0.9, barPercentage: 0.92,
+      borderRadius: k === 0 && banyak ? (c) => (atas(c.dataIndex) ? 0 : 4) : 4,
+      borderWidth: k === 0 && banyak ? (c) => (atas(c.dataIndex) && seri[0].data[c.dataIndex] > 0 ? { top: 2 } : 0) : 0,
+      borderColor: W.permukaan,
+    }));
+    const options = {
+      responsive: true, maintainAspectRatio: false, animation: animasiBatang(),
+      interaction: banyak ? { mode: "index", intersect: false } : { mode: "nearest", intersect: true },
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: W.permukaan, titleColor: W.tinta, bodyColor: W.tinta2, footerColor: W.tinta, borderColor: W.garis,
+        borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: banyak, boxWidth: 10, boxHeight: 10, boxPadding: 4,
+        callbacks: {
+          title: opsi.judul,
+          label: (it) => (banyak ? it.dataset.label + ": " : "") + opsi.teks(it.raw),
+          footer: banyak ? (it) => "Total: " + opsi.teks(it.reduce((a, x) => a + x.raw, 0)) : undefined,
+        } } },
+      scales: {
+        x: { stacked: banyak, grid: { display: false }, border: { color: W.sumbu }, ticks: { color: W.redup, font: { size: 10 },
+          maxRotation: 0, autoSkip: true, autoSkipPadding: 8 } },
+        y: { stacked: banyak, beginAtZero: true, grid: { color: W.garis, lineWidth: 1 }, border: { display: false },
+          ticks: { color: W.redup, font: { size: 10 }, maxTicksLimit: 4, callback: opsi.sumbuY } },
+      },
+    };
+    const ch = grafik[id];
+    if (ch) {
+      ch.data.labels = label;
+      datasets.forEach((d, k) => Object.assign(ch.data.datasets[k], d));
+      ch.options = options;
+      ch.update();
+      return;
+    }
+    grafik[id] = new Chart($(id), { type: "bar", data: { labels: label, datasets }, options });
+  }
+
+  /** Legenda kecil "Shopee / Non-Shopee" di kartu, hanya saat dua sumber tampil bersama. */
+  function legendaSumber(el, tampil) {
+    const W = warna();
+    el.hidden = !tampil;
+    el.innerHTML = tampil ? `<span><i style="background:${W.seri1}"></i>Shopee</span><span><i style="background:${W.seri2}"></i>Non-Shopee</span>` : "";
+  }
 
   function garisMini(label, nilai) {
     const cv = $("garis-mini");
@@ -323,6 +401,8 @@
     tas: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
     kotak: '<path d="M21 8l-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
     persen: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+    pai: '<path d="M21 12a9 9 0 1 1-9-9v9z"/><path d="M15.5 3.7A9 9 0 0 1 20.3 8.5H15.5z"/>',
+    jam: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
   };
   const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   const KPI = [
@@ -332,12 +412,17 @@
       fmt: (x) => (isFinite(x) ? fmtPct.format(x * 100) + "%" : "–") },
     { id: "n", label: "Jumlah pesanan", ikon: IKON.tas, fmt: (x) => fmtAngka.format(x) },
     { id: "w", label: "Jumlah pcs bersih", ikon: IKON.kotak, fmt: (x) => fmtDes.format(Math.round(x * 100) / 100) },
+    { id: "porsi", kelas: "lebar porsi", label: "Porsi Penghasilan Shopee dan Non-Shopee", ikon: IKON.pai },
   ];
 
   function buatKPI() {
-    $("kpi").innerHTML = KPI.map((k) => `<div class="kartu ${k.kelas || ""}">
-      <div class="baris-label"><span class="ikon">${svg(k.ikon)}</span><span class="label">${k.label}</span></div>
-      <div class="nilai" id="kpi-${k.id}" data-hitung></div>
+    $("kpi").innerHTML = KPI.map((k) => `<div class="kartu ${k.kelas || ""}" id="kartu-${k.id}">
+      <div class="baris-label"><span class="ikon">${svg(k.ikon)}</span><span class="label">${k.label}${k.id === "rasio"
+        ? ' <span class="lencana" id="lencana-rasio">Khusus Shopee</span>' : ""}</span></div>
+      ${k.id === "porsi" ? `<div class="seg-batang tipis" role="img" id="porsi-batang"><div class="seg"></div><div class="seg"></div></div>
+        <div class="legenda">${["Shopee", "Non-Shopee"].map((nama) =>
+          `<span><i></i>${nama} <b data-hitung></b> <span class="jml"></span></span>`).join("")}</div>`
+        : `<div class="nilai" id="kpi-${k.id}" data-hitung></div>`}
       ${k.id === "rasio" ? '<div class="meter" aria-hidden="true"><span class="isi" id="kpi-meter"></span></div>' : ""}
       <div class="ket" id="kpi-ket-${k.id}"></div>
       ${k.kelas === "utama" ? '<div class="garis-mini"><canvas id="garis-mini" aria-hidden="true"></canvas></div>' : ""}</div>`).join("");
@@ -345,19 +430,62 @@
   }
 
   function gambarKPI(baris) {
-    const n = baris.length;
-    const jum = (k) => baris.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
-    const nilai = { pa: jum("pa"), v: jum("v"), n, w: jum("w") };
-    nilai.rasio = nilai.v ? 1 - nilai.pa / nilai.v : NaN;  // porsi biaya Shopee dari nilai produk
-    for (const k of KPI) hitungNaik($("kpi-" + k.id), nilai[k.id], k.fmt);
+    const s = sumber(), n = baris.length;
+    const jum = (rows, k) => rows.reduce((a, x) => a + (typeof x[k] === "number" ? x[k] : 0), 0);
+    const sh = baris.filter((x) => x.src === "s"), nn = baris.filter((x) => x.src === "n");
+    const nilai = { pa: jum(baris, "pa"), v: jum(baris, "v"), n, w: jum(baris, "w") };
+    // porsi biaya Shopee dari nilai produk: selalu dari pesanan Shopee saja
+    const vS = jum(sh, "v"), paS = jum(sh, "pa");
+    nilai.rasio = vS ? 1 - paS / vS : NaN;
+    for (const k of KPI) if (k.fmt) hitungNaik($("kpi-" + k.id), nilai[k.id], k.fmt);
     $("kpi-ket-pa").textContent = n ? `Rata-rata ${rp(nilai.pa / n)} per pesanan` : "Tidak ada pesanan pada periode ini";
     $("kpi-ket-v").textContent = n ? `Rata-rata ${rp(nilai.v / n)} per pesanan` : "";
-    $("kpi-ket-n").textContent = pilihan.tanpaRetur ? "Tanpa pesanan retur" : "Termasuk pesanan retur";
+    $("kpi-ket-n").textContent = s === "semua" ? `${fmtAngka.format(sh.length)} Shopee · ${fmtAngka.format(nn.length)} non-Shopee`
+      : (pilihan.tanpaRetur ? "Tanpa pesanan retur" : "Termasuk pesanan retur");
     $("kpi-ket-w").textContent = n ? `Rata-rata ${fmtDes.format(nilai.w / n)} pcs per pesanan` : "";
-    $("kpi-ket-rasio").textContent = nilai.v ? `Potongan ${rp(nilai.v - nilai.pa)} dari ${rp(nilai.v)}` : "";
+    $("kpi-ket-rasio").textContent = vS ? `Potongan ${rp(vS - paS)} dari ${rp(vS)}` : (n ? "Tidak ada pesanan Shopee pada periode ini" : "");
     const meter = $("kpi-meter");
     void meter.offsetWidth;
     meter.style.width = (isFinite(nilai.rasio) ? Math.max(0, Math.min(1, nilai.rasio)) * 100 : 0) + "%";
+    // tampilan kartu menurut sumber; kartu utama setinggi kolom kanan
+    $("kartu-rasio").hidden = s === "non";
+    $("lencana-rasio").hidden = s !== "semua";
+    $("kartu-porsi").hidden = s !== "semua";
+    $("kpi").style.setProperty("--baris", s === "semua" ? 4 : s === "shopee" ? 3 : 2);
+    if (s === "semua") gambarPorsi(paS, jum(nn, "pa"));
+  }
+
+  function gambarPorsi(paS, paN) {
+    const W = warna(), nilai = [Math.max(0, paS), Math.max(0, paN)], warnaSeg = [W.seri1, W.seri2];
+    const tot = nilai[0] + nilai[1], el = $("kartu-porsi");
+    el.querySelectorAll(".seg").forEach((sg, k) => {
+      sg.style.background = warnaSeg[k];
+      sg.style.flexGrow = tot ? String(nilai[k]) : "0";
+    });
+    el.querySelectorAll(".seg")[1].style.boxShadow = nilai[0] && nilai[1] ? "" : "none";
+    $("porsi-batang").setAttribute("aria-label", tot ? `Shopee ${pct(nilai[0] / tot)}, non-Shopee ${pct(nilai[1] / tot)}` : "Tidak ada data");
+    el.querySelectorAll(".legenda i").forEach((e, k) => { e.style.background = warnaSeg[k]; });
+    el.querySelectorAll(".legenda b").forEach((e, k) => hitungNaik(e, tot ? nilai[k] / tot : NaN, (v) => (isFinite(v) ? pct(v) : "–")));
+    el.querySelectorAll(".legenda .jml").forEach((e, k) => { e.textContent = rp(nilai[k]); });
+    $("kpi-ket-porsi").textContent = tot ? `Dari Penghasilan Akhir ${rp(tot)} pada periode ini` : "Tidak ada pesanan pada periode ini";
+  }
+
+  // ------------------------------------------------------------------ belum lunas (non-Shopee)
+  function gambarBelum() {
+    const el = $("belum");
+    const tampil = BELUM.length > 0 && sumber() !== "shopee";
+    el.hidden = !tampil;
+    if (!tampil) return;
+    const angka = (v) => (typeof v === "number" ? v : 0);
+    const diterima = BELUM.reduce((a, x) => a + angka(x.pa), 0);
+    const sisa = BELUM.reduce((a, x) => a + Math.max(0, angka(x.selisih)), 0);
+    el.innerHTML = `<div class="baris-label"><span class="ikon">${svg(IKON.jam)}</span><div>
+        <h3>${BELUM.length} pesanan non-Shopee belum lunas</h3>
+        <p class="ket">Belum ikut dihitung di dashboard sampai lunas. Sudah diterima ${rp(diterima)}, sisa tagihan ${rp(sisa)}.</p></div></div>
+      <ul class="daftar-belum">${BELUM.map((x) => `<li>
+        <span class="no">#${esc(x.no)}</span>
+        <span class="isi-belum"><span>${esc(x.saluran)}${x.cara ? " · " + esc(x.cara) : ""}${typeof x.bayar1 === "number" ? " · bayar pertama " + tglTeks(x.bayar1) : ""}</span>
+        <span class="rp">Diterima ${rp(angka(x.pa))} · sisa ${rp(Math.max(0, angka(x.selisih)))} dari ${rp(angka(x.v))}</span></span></li>`).join("")}</ul>`;
   }
 
   // ------------------------------------------------------------------ kartu statistik
@@ -421,7 +549,7 @@
       return;
     }
     hitungNaik($("nilai-" + m.id), st[pilih], fmt.teks);
-    const ket = { min: `Pesanan ke-${st.minNo}`, maks: `Pesanan ke-${st.maksNo}`, median: `Nilai tengah dari ${st.n} pesanan`,
+    const ket = { min: namaPesanan(st.minX), maks: namaPesanan(st.maksX), median: `Nilai tengah dari ${st.n} pesanan`,
       rata: `Rata-rata dari ${st.n} pesanan`, total: `Jumlah dari ${st.n} pesanan` }[pilih];
     $("ket-" + m.id).textContent = ket;
     histogram("hist-" + m.id, st, fmt);
@@ -454,18 +582,28 @@
         const k = y + "-" + String(m + 1).padStart(2, "0"); idx[k] = label.length; label.push(k);
       }
     }
-    const pa = new Array(label.length).fill(0), n = new Array(label.length).fill(0);
-    for (const x of baris) { const k = idx[kunci(x.p)]; pa[k] += x.pa || 0; n[k] += 1; }
+    // satu seri per sumber yang tampil; warna mengikuti sumbernya (Shopee biru, non-Shopee oranye)
+    const W = warna(), s = sumber();
+    const daftar = (s === "semua" ? [["s", "Shopee", W.seri1], ["n", "Non-Shopee", W.seri2]]
+      : s === "shopee" ? [["s", "Shopee", W.seri1]] : [["n", "Non-Shopee", W.seri2]]);
+    const seriPA = daftar.map(([src, nama, w]) => ({ src, nama, warna: w, data: new Array(label.length).fill(0) }));
+    const seriN = daftar.map(([src, nama, w]) => ({ src, nama, warna: w, data: new Array(label.length).fill(0) }));
+    const pa = new Array(label.length).fill(0);
+    for (const x of baris) {
+      const k = idx[kunci(x.p)], j = daftar.findIndex((d) => d[0] === x.src);
+      if (j < 0) continue;
+      seriPA[j].data[k] += x.pa || 0; seriN[j].data[k] += 1; pa[k] += x.pa || 0;
+    }
     const tampil = label.map((k, ix) => { const p = k.split("-").map(Number);
       if (harian) return p[2] + " " + BULAN[p[1] - 1];
       return ix === 0 || p[1] === 1 ? [BULAN[p[1] - 1], String(p[0])] : BULAN[p[1] - 1]; });
     const judul = label.map((k) => { const p = k.split("-").map(Number);
       return harian ? p[2] + " " + BULAN[p[1] - 1] + " " + p[0] : BULAN[p[1] - 1] + " " + p[0]; });
     $("tren-satuan-1").textContent = $("tren-satuan-2").textContent = harian ? "per hari" : "per bulan";
-    grafikBatang("tren-pa", tampil, pa, { sumbuY: (v) => rpRingkas(v),
-      tooltip: { title: (it) => judul[it[0].dataIndex], label: (it) => rp(it.raw) } });
-    grafikBatang("tren-n", tampil, n, { sumbuY: (v) => (Number.isInteger(v) ? v : ""),
-      tooltip: { title: (it) => judul[it[0].dataIndex], label: (it) => it.raw + " pesanan" } });
+    const judulTip = (it) => judul[it[0].dataIndex];
+    grafikTren("tren-pa", tampil, seriPA, { sumbuY: (v) => rpRingkas(v), judul: judulTip, teks: rp });
+    grafikTren("tren-n", tampil, seriN, { sumbuY: (v) => (Number.isInteger(v) ? v : ""), judul: judulTip,
+      teks: (v) => fmtAngka.format(v) + " pesanan" });
     garisMini(judul, pa);
   }
 
@@ -522,7 +660,7 @@
       const k = kunciFn(p);
       if (!peta.has(k)) peta.set(k, { nama: k, pcs: 0, nominal: 0, pesanan: new Set() });
       const a = peta.get(k);
-      a.pcs += (p.beli || 0) + (p.kembali || 0); a.nominal += p.sub || 0; a.pesanan.add(p.no);
+      a.pcs += (p.beli || 0) + (p.kembali || 0); a.nominal += p.sub || 0; a.pesanan.add(p.k);
     }
     return [...peta.values()].map((a) => ({ nama: a.nama, pcs: a.pcs, nominal: a.nominal, pesanan: a.pesanan.size }))
       .sort((a, b) => b[pilihan.ukuran] - a[pilihan.ukuran] || a.nama.localeCompare(b.nama));
@@ -552,8 +690,8 @@
   }
 
   function gambarProduk(baris, hanyaVarian) {
-    const nos = new Set(baris.map((x) => x.no));
-    const rows = PRODUK.filter((p) => nos.has(p.no));
+    const nos = new Set(baris.map((x) => x.k));
+    const rows = PRODUK.filter((p) => nos.has(p.k));
     document.querySelectorAll("#ukuran-produk button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.u === pilihan.ukuran)));
     pasangIndikator($("ukuran-produk"));
     const sku = agregat(rows, (p) => p.sku);
@@ -568,7 +706,7 @@
     };
     const kotak = (judul, it) => `<div><div class="label">${judul}</div><div class="nama">${seri(it[pilihan.ukuran])}</div><div class="ket">${nilaiUkuran(it[pilihan.ukuran])}</div></div>`;
     // total seluruh produk terjual pada periode ini (menurut ukuran yang dipilih)
-    const total = pilihan.ukuran === "pesanan" ? new Set(rows.map((p) => p.no)).size
+    const total = pilihan.ukuran === "pesanan" ? new Set(rows.map((p) => p.k)).size
       : sku.reduce((a, x) => a + x[pilihan.ukuran], 0);
     const jmlVarian = new Set(rows.map((p) => p.sku + "\u0000" + p.varian)).size;
     const judulTotal = { pcs: "Total seluruh produk terjual", pesanan: "Total pesanan berisi produk",
@@ -593,11 +731,69 @@
     daftarBatang($("daftar-varian"), varian, false, null, totalSku);
   }
 
+  // ------------------------------------------------------------------ saluran penjualan
+  const UKURAN_SALURAN = { pa: "Penghasilan Akhir", n: "Pesanan", w: "Pcs bersih" };
+  function teksSaluran(v) {
+    const u = pilihan.ukuranSaluran;
+    return u === "pa" ? rp(v) : fmtDes.format(Math.round(v * 100) / 100) + (u === "n" ? " pesanan" : " pcs");
+  }
+
+  function gambarSaluran(baris) {
+    const s = sumber();
+    $("grup-saluran").hidden = s === "shopee";
+    if (s === "shopee") return;
+    const u = UKURAN_SALURAN[pilihan.ukuranSaluran] ? pilihan.ukuranSaluran : "pa";
+    document.querySelectorAll("#ukuran-saluran button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.u === u)));
+    pasangIndikator($("ukuran-saluran"));
+    const peta = new Map();
+    for (const x of baris) {
+      const kunci = x.src + "\u0000" + x.saluran;
+      if (!peta.has(kunci)) peta.set(kunci, { nama: x.saluran, src: x.src, pa: 0, n: 0, w: 0 });
+      const a = peta.get(kunci);
+      a.pa += typeof x.pa === "number" ? x.pa : 0; a.n += 1; a.w += typeof x.w === "number" ? x.w : 0;
+    }
+    const items = [...peta.values()].sort((a, b) => b[u] - a[u] || a.nama.localeCompare(b.nama));
+    const el = $("daftar-saluran");
+    if (!items.length) { el.innerHTML = '<p class="sub">Tidak ada pesanan pada periode ini.</p>'; return; }
+    const total = items.reduce((a, x) => a + Math.max(0, x[u]), 0);
+    const maks = Math.max(1, ...items.map((x) => Math.max(0, x[u])));
+    el.innerHTML = "";
+    const isi = [];
+    items.forEach((it, i) => {
+      const b = document.createElement("div");
+      b.className = "baris-batang"; b.setAttribute("role", "listitem");
+      b.innerHTML = `<span class="nama">${esc(it.nama)}${it.src === "n" && s === "semua" ? ' <span class="ket-sumber">non-Shopee</span>' : ""}</span>
+        <span class="nilai">${teksSaluran(it[u])}${total > 0 ? ` <span class="porsi">${pct(Math.max(0, it[u]) / total)}</span>` : ""}</span>
+        <span class="jalur"><span class="isi${it.src === "n" ? " non" : ""}"></span></span>`;
+      const bar = b.querySelector(".isi");
+      bar.style.setProperty("--tunda", Math.min(i * 45, 500) + "ms");
+      isi.push([bar, Math.max(0, it[u]) / maks * 100]);
+      el.appendChild(b);
+    });
+    void el.offsetWidth;
+    isi.forEach(([bar, w]) => { bar.style.width = w + "%"; });
+  }
+
   // ------------------------------------------------------------------ saringan
   const PERIODE = [["semua", "Semua"], ["30h", "30 hari"], ["bulan_ini", "Bulan ini"], ["bulan_lalu", "Bulan lalu"],
     ["3bln", "3 bulan"], ["tahun_ini", "Tahun ini"], ["rentang", "Rentang…"]];
 
   function buatSaringan() {
+    if (ADA_NON) {
+      for (const [k, nama] of SUMBER) {
+        const b = document.createElement("button");
+        b.type = "button"; b.textContent = nama; b.dataset.s = k; b.setAttribute("role", "radio");
+        b.addEventListener("click", () => { pilihan.sumber = k; simpanPilihan(); gambarSemua(); });
+        $("sumber").appendChild(b);
+      }
+      $("sumber").hidden = false;
+      for (const [k, nama] of Object.entries(UKURAN_SALURAN)) {
+        const b = document.createElement("button");
+        b.type = "button"; b.textContent = nama; b.dataset.u = k; b.setAttribute("role", "radio");
+        b.addEventListener("click", () => { pilihan.ukuranSaluran = k; simpanPilihan(); gambarSaluran(tersaring()); });
+        $("ukuran-saluran").appendChild(b);
+      }
+    }
     for (const [k, nama] of PERIODE) {
       const b = document.createElement("button");
       b.type = "button"; b.textContent = nama; b.dataset.p = k; b.setAttribute("role", "radio");
@@ -613,13 +809,11 @@
     $("tanpa-retur").checked = !!pilihan.tanpaRetur;
     $("tanpa-retur").addEventListener("change", (e) => { pilihan.tanpaRetur = e.target.checked; simpanPilihan(); gambarSemua(); });
     ["dari", "sampai"].forEach((id) => $(id).addEventListener("change", gambarSemua));
-    const ps = PESANAN.map((x) => x.p).filter((x) => typeof x === "number");
+    const ps = SEMUA.map((x) => x.p).filter((x) => typeof x === "number");
     if (ps.length) {
       $("dari").min = $("sampai").min = isoTgl(Math.min(...ps));
       $("dari").value = isoTgl(Math.min(...ps)); $("sampai").value = isoTgl(Math.max(...ps));
     }
-    const nRetur = PESANAN.filter((x) => x.retur).length;
-    $("label-retur").textContent = `Kecualikan retur (${nRetur} pesanan)`;
     // bayangan pada saringan saat menempel di atas
     if ("IntersectionObserver" in window) {
       new IntersectionObserver(([e]) => $("saringan").classList.toggle("melayang", !e.isIntersecting))
@@ -633,16 +827,35 @@
   }
 
   function gambarSemua() {
+    const s = sumber();
+    document.querySelectorAll("#sumber button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.s === s)));
+    pasangIndikator($("sumber"));
     document.querySelectorAll("#periode button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.p === pilihan.periode)));
     pasangIndikator($("periode"));
     $("rentang").hidden = pilihan.periode !== "rentang";
+    $("aplikasi").dataset.sumber = s;
+    const nRetur = SEMUA.filter((x) => x.retur && cocokSumber(x)).length;
+    $("label-retur").textContent = `Kecualikan retur (${nRetur} pesanan)`;
     const baris = tersaring();
     const [, , teks] = rentangPeriode();
-    $("ringkas-periode").textContent = `${teks} · ${fmtAngka.format(baris.length)} pesanan menurut Waktu Selesai (Dana Lepas)`;
+    const dasar = { semua: "Waktu Selesai (Shopee) dan Tanggal Lunas (non-Shopee)", shopee: "Waktu Selesai (Dana Lepas)",
+      non: "Tanggal Lunas" }[s];
+    const namaSumber = { semua: "", shopee: ADA_NON ? " Shopee" : "", non: " non-Shopee" }[s];
+    $("ringkas-periode").textContent = `${teks} · ${fmtAngka.format(baris.length)} pesanan${namaSumber} menurut ${dasar}`;
+    // bagian yang datanya hanya ada di Shopee: disembunyikan saat hanya non-Shopee, berlabel saat digabung
+    const shopee = baris.filter((x) => x.src === "s");
+    document.querySelectorAll(".khusus-shopee").forEach((el) => { el.hidden = s === "non"; });
+    document.querySelectorAll(".lencana.khusus").forEach((el) => { el.hidden = s !== "semua"; });
+    document.querySelectorAll(".legenda-sumber").forEach((el) => legendaSumber(el, s === "semua"));
     gambarKPI(baris);
+    gambarBelum();
     gambarTren(baris);
-    gambarLokasi(baris);
-    for (const m of METRIK) gambarKartu(m, baris);
+    gambarSaluran(baris);
+    if (s !== "non") gambarLokasi(shopee);
+    for (const m of METRIK) {
+      if (m.grup === "grup-nilai") gambarKartu(m, baris);
+      else if (s !== "non") gambarKartu(m, shopee);
+    }
     gambarProduk(baris);
   }
 
@@ -655,8 +868,10 @@
     DATA = data;
     siapkan(data);
     if (window.Chart) Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
-    const ps = PESANAN.map((x) => x.p).filter((x) => typeof x === "number");
-    $("info-data").innerHTML = `${fmtAngka.format(PESANAN.length)} pesanan · dana lepas terakhir ${ps.length ? tglTeks(Math.max(...ps)) : "-"}` +
+    const ps = SEMUA.map((x) => x.p).filter((x) => typeof x === "number");
+    const jumlah = ADA_NON ? `${fmtAngka.format(PESANAN.length)} pesanan Shopee · ${fmtAngka.format(NON.length + BELUM.length)} non-Shopee`
+      : `${fmtAngka.format(PESANAN.length)} pesanan`;
+    $("info-data").innerHTML = `${jumlah} · ${ADA_NON ? "transaksi" : "dana lepas"} terakhir ${ps.length ? tglTeks(Math.max(...ps)) : "-"}` +
       (data.dibuat ? `<br><span class="denyut" aria-hidden="true"></span>Diperbarui ${esc(dibuatTeks(data.dibuat))}` : "");
     tampil("aplikasi");
     if (GERAK()) $("aplikasi").classList.add("tiba");

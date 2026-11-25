@@ -22,7 +22,7 @@
     <form id="form-masuk" class="kartu masuk-kartu" autocomplete="on">
       <img src="icon-192.png" alt="" width="56" height="56" class="masuk-logo">
       <h1>Ganeca</h1>
-      <p class="sub">Dashboard Penjualan Shopee</p>
+      <p class="sub">Dashboard Penjualan</p>
       <input type="text" name="username" autocomplete="username" value="ganeca" hidden>
       <label for="sandi">Kata sandi</label>
       <input id="sandi" name="password" type="password" autocomplete="current-password" required>
@@ -35,7 +35,7 @@
   <div id="aplikasi" hidden>
     <header class="kepala">
       <div>
-        <h1>Ganeca <span>Penjualan Shopee</span></h1>
+        <h1>Ganeca <span>Penjualan</span></h1>
         <p id="info-data" class="sub"></p>
       </div>
       <button id="keluar" class="tombol-teks" type="button">Keluar</button>
@@ -43,7 +43,8 @@
 
     <div id="penanda-saringan" aria-hidden="true"></div>
     <section class="saringan" id="saringan" aria-label="Saringan">
-      <div class="chips trek" id="periode" role="radiogroup" aria-label="Periode (Waktu Selesai / Dana Lepas)"></div>
+      <div class="chips trek" id="sumber" role="radiogroup" aria-label="Sumber penjualan" hidden></div>
+      <div class="chips trek" id="periode" role="radiogroup" aria-label="Periode"></div>
       <div class="rentang" id="rentang" hidden>
         <label>Dari <input type="date" id="dari"></label>
         <label>Sampai <input type="date" id="sampai"></label>
@@ -55,21 +56,34 @@
 
     <section class="kpi" id="kpi" aria-label="Ringkasan"></section>
 
+    <section class="kartu belum" id="belum" aria-label="Pesanan non-Shopee belum lunas" hidden></section>
+
     <section class="grup">
       <h2>Tren</h2>
       <div class="grid dua">
-        <article class="kartu"><h3>Penghasilan Akhir <span class="satuan" id="tren-satuan-1"></span></h3><div class="kanvas tren" data-kosong="Tidak ada pesanan pada periode ini"><canvas id="tren-pa" aria-label="Grafik Penghasilan Akhir per periode"></canvas></div></article>
-        <article class="kartu"><h3>Jumlah pesanan <span class="satuan" id="tren-satuan-2"></span></h3><div class="kanvas tren" data-kosong="Tidak ada pesanan pada periode ini"><canvas id="tren-n" aria-label="Grafik jumlah pesanan per periode"></canvas></div></article>
+        <article class="kartu"><div class="judul-kartu"><h3>Penghasilan Akhir <span class="satuan" id="tren-satuan-1"></span></h3><div class="legenda kecil legenda-sumber"></div></div><div class="kanvas tren" data-kosong="Tidak ada pesanan pada periode ini"><canvas id="tren-pa" aria-label="Grafik Penghasilan Akhir per periode"></canvas></div></article>
+        <article class="kartu"><div class="judul-kartu"><h3>Jumlah pesanan <span class="satuan" id="tren-satuan-2"></span></h3><div class="legenda kecil legenda-sumber"></div></div><div class="kanvas tren" data-kosong="Tidak ada pesanan pada periode ini"><canvas id="tren-n" aria-label="Grafik jumlah pesanan per periode"></canvas></div></article>
       </div>
     </section>
 
-    <section class="grup">
-      <h2>Lokasi pembeli</h2>
+    <section class="grup" id="grup-saluran" hidden>
+      <h2>Saluran penjualan</h2>
+      <article class="kartu">
+        <div class="kepala-kartu">
+          <div class="judul-kartu"><h3>Penjualan per saluran</h3><div class="legenda kecil legenda-sumber"></div></div>
+          <div class="segmen trek" id="ukuran-saluran" role="radiogroup" aria-label="Ukuran saluran"></div>
+        </div>
+        <div id="daftar-saluran" class="daftar-batang" role="list"></div>
+      </article>
+    </section>
+
+    <section class="grup khusus-shopee">
+      <h2>Lokasi pembeli <span class="lencana khusus">Khusus Shopee</span></h2>
       <div class="grid dua" id="lokasi"></div>
     </section>
 
-    <section class="grup">
-      <h2>Waktu</h2>
+    <section class="grup khusus-shopee">
+      <h2>Waktu <span class="lencana khusus">Khusus Shopee</span></h2>
       <div class="grid tiga" id="grup-waktu"></div>
     </section>
 
@@ -78,8 +92,8 @@
       <div class="grid tiga" id="grup-nilai"></div>
     </section>
 
-    <section class="grup">
-      <h2>Biaya dan selisih</h2>
+    <section class="grup khusus-shopee">
+      <h2>Biaya dan selisih <span class="lencana khusus">Khusus Shopee</span></h2>
       <div class="grid dua" id="grup-biaya"></div>
     </section>
 
@@ -99,8 +113,8 @@
     </section>
 
     <footer class="kaki sub">
-      Data dihitung dari file Excel penjualan Shopee dan diperbarui otomatis setelah sinkron harian pukul 21.00 WIB.
-      Periode memakai kolom Waktu Selesai (Dana Lepas).
+      Data dihitung dari file Excel penjualan Shopee dan non-Shopee, dan diperbarui otomatis setelah sinkron harian pukul 21.00 WIB.
+      Periode memakai Waktu Selesai (Dana Lepas) untuk Shopee dan Tanggal Lunas untuk non-Shopee.
     </footer>
   </div>
 

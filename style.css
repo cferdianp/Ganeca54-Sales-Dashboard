@@ -209,7 +209,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--aksen); out
 .kpi .utama, .kpi .lebar { grid-column: 1 / -1; }
 @media (min-width: 720px) {
   .kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .kpi .utama { grid-column: 1 / span 2; grid-row: 1 / span 3; }
+  .kpi .utama { grid-column: 1 / span 2; grid-row: 1 / span var(--baris, 3); }
   .kpi .lebar { grid-column: 3 / span 2; }
 }
 .kpi .kartu { padding: 14px; display: flex; flex-direction: column; }
@@ -247,7 +247,46 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--aksen); out
 .kpi .utama .label { color: rgba(255, 255, 255, .92); font-weight: 500; }
 .kpi .utama .nilai { font-size: clamp(30px, 8.4vw, 42px); margin-top: 14px; }
 .kpi .utama .ket { color: rgba(255, 255, 255, .9); font-size: 13px; }
-.kpi .utama .garis-mini { flex: 1; min-height: 64px; margin: 10px -14px -14px; }
+.kpi .utama .garis-mini { position: relative; flex: 1; min-height: 130px; margin: 10px -14px -14px; }
+/* kanvas tidak ikut menentukan tinggi kartu, supaya kartu bisa mengecil saat jumlah baris ringkasan berubah */
+.kpi .utama .garis-mini canvas { position: absolute; left: 0; top: 0; }
+@media (min-width: 720px) { .kpi .utama .garis-mini { min-height: 64px; } }
+
+/* porsi Shopee dan non-Shopee */
+.seg-batang.tipis { height: 14px; margin: 14px 0 10px; border-radius: 5px; }
+.kpi .porsi .legenda { gap: 4px 18px; }
+.kpi .porsi .legenda .jml { color: var(--tinta-redup); font-size: 12px; }
+.lencana {
+  display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .01em; line-height: 1.4;
+  padding: 1px 7px; border-radius: 999px; vertical-align: 1px;
+  color: var(--tinta-2); background: var(--trek); border: 1px solid var(--garis);
+  text-transform: none;
+}
+h2 .lencana { margin-left: 2px; }
+
+/* pesanan non-Shopee belum lunas */
+.belum { margin-top: 12px; padding: 12px 14px; }
+.belum .baris-label { display: flex; gap: 10px; align-items: flex-start; }
+.belum .ikon {
+  width: 32px; height: 32px; flex: none; border-radius: 10px; display: grid; place-items: center;
+  background: var(--trek); color: var(--tinta-2);
+}
+.belum .ikon svg { width: 18px; height: 18px; }
+.belum h3 { font-size: 14px; }
+.belum .ket { font-size: 12.5px; color: var(--tinta-redup); margin: 2px 0 0; }
+.daftar-belum { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.daftar-belum li {
+  display: flex; gap: 10px; align-items: baseline; font-size: 13px; color: var(--tinta-2);
+  border-top: 1px solid var(--garis); padding-top: 6px;
+}
+.daftar-belum .no { font-weight: 600; color: var(--tinta); min-width: 32px; }
+.daftar-belum .isi-belum { display: flex; flex-wrap: wrap; gap: 2px 14px; justify-content: space-between; flex: 1; min-width: 0; }
+.daftar-belum .rp { color: var(--tinta); }
+
+/* judul kartu dengan legenda sumber */
+.judul-kartu { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.legenda.kecil { font-size: 12px; gap: 4px 12px; }
+.legenda.kecil i { width: 9px; height: 9px; }
 
 /* kartu statistik */
 .kepala-kartu { display: flex; flex-direction: column; gap: 10px; }
@@ -302,6 +341,12 @@ button.baris-batang:active { transform: scale(.99); }
   background: linear-gradient(90deg, var(--seri-1), color-mix(in srgb, var(--seri-1) 78%, #fff));
   transition: width 800ms var(--ease) var(--tunda, 0ms);
 }
+
+#aplikasi[data-sumber="non"] #daftar-sku .isi, #aplikasi[data-sumber="non"] #daftar-varian .isi,
+.baris-batang .isi.non { background: linear-gradient(90deg, var(--seri-2), color-mix(in srgb, var(--seri-2) 78%, #fff)); }
+.baris-batang .ket-sumber { font-size: 11.5px; color: var(--tinta-redup); }
+#ukuran-saluran.trek { align-self: flex-start; }
+#ukuran-saluran.trek button { flex: none; padding: 5px 11px; font-size: 12.5px; }
 
 .kaki { margin-top: 32px; text-align: center; font-size: 12px; }
 
